@@ -1,0 +1,70 @@
+[versions]
+kotlin = "2.1.20"
+springBoot = "3.4.4"
+springDependencyManagement = "1.1.7"
+springModulith = "1.3.4"
+flyway = "11.5.0"
+postgresql = "42.7.5"
+testcontainers = "1.20.6"
+bouncycastle = "1.80"
+mockk = "1.13.17"
+springmockk = "4.0.2"
+ktlint = "12.2.0"
+openapiGenerator = "7.12.0"
+swaggerParser = "2.1.25"
+
+[libraries]
+# Spring Boot starters
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+spring-boot-starter-data-jpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+spring-boot-starter-oauth2-authorization-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-authorization-server" }
+spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
+spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+# Actuator alone does not include a Prometheus registry, so the
+# /actuator/prometheus endpoint configured in application.yml returns 404
+# without this. Version comes from the Spring Boot BOM.
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+spring-boot-starter-data-redis = { module = "org.springframework.boot:spring-boot-starter-data-redis" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-security-test = { module = "org.springframework.security:spring-security-test" }
+
+# Kotlin
+jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin" }
+kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core" }
+
+# Spring Modulith
+spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "springModulith" }
+spring-modulith-starter-core = { module = "org.springframework.modulith:spring-modulith-starter-core" }
+spring-modulith-starter-jpa = { module = "org.springframework.modulith:spring-modulith-starter-jpa" }
+spring-modulith-actuator = { module = "org.springframework.modulith:spring-modulith-actuator" }
+spring-modulith-events-api = { module = "org.springframework.modulith:spring-modulith-events-api" }
+spring-modulith-starter-test = { module = "org.springframework.modulith:spring-modulith-starter-test" }
+spring-modulith-docs = { module = "org.springframework.modulith:spring-modulith-docs" }
+
+# Persistence
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+
+# Crypto (Argon2id)
+bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+
+# Test
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+swagger-parser = { module = "io.swagger.parser.v3:swagger-parser", version.ref = "swaggerParser" }
+springmockk = { module = "com.ninja-squad:springmockk", version.ref = "springmockk" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+kotlin-jpa = { id = "org.jetbrains.kotlin.plugin.jpa", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+openapi-generator = { id = "org.openapi.generator", version.ref = "openapiGenerator" }

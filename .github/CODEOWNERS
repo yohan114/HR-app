@@ -1,0 +1,26 @@
+# Default: any change needs a review from the team.
+*                               @hr-platform/engineering
+
+# Tenant isolation is the failure that ends the company. Every change to it
+# gets a second pair of eyes from whoever owns the architecture, regardless of
+# how small it looks.
+/backend/src/main/kotlin/com/hr/tenancy/          @hr-platform/tech-leads
+/backend/src/main/resources/db/migration/         @hr-platform/tech-leads
+/backend/src/test/kotlin/com/hr/tenancy/          @hr-platform/tech-leads
+
+# Authentication and authorisation.
+/backend/src/main/kotlin/com/hr/identity/         @hr-platform/tech-leads
+/backend/src/main/kotlin/com/hr/config/SecurityConfig.kt  @hr-platform/tech-leads
+
+# The API contract. A breaking change here breaks three clients at once.
+/spec/                                            @hr-platform/tech-leads
+/clients/                                         @hr-platform/tech-leads
+
+# Infrastructure, secrets and CI.
+/infra/                                           @hr-platform/platform
+/.github/workflows/                               @hr-platform/platform
+/backend/Dockerfile                               @hr-platform/platform
+
+# Architecture decisions are a team conversation, not a merge.
+/docs/adr/                                        @hr-platform/tech-leads
+/docs/sync-protocol.md                            @hr-platform/tech-leads

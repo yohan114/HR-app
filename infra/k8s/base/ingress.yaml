@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hr-backend
+  annotations:
+    # cert-manager issues and renews the certificate for the hosts below.
+    # Overlays point this at letsencrypt-staging while proving out a new
+    # domain — production rate limits are unforgiving and exhausting them
+    # blocks issuance for the rest of the week.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+    # Plain HTTP is redirected rather than served. Combined with the HSTS
+    # header set in the controller config, a client that has visited once will
+    # not attempt HTTP again.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # A backstop, not the primary control. Real rate limiting is per-tenant and
+    # per-user in the application, where it can distinguish a busy customer
+    # from an attacker. This only stops a single source saturating the
+    # controller before requests reach that logic.
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.hrapp.io
+      secretName: hr-backend-tls
+  rules:
+    - host: api.hrapp.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hr-backend
+                port:
+                  name: http

@@ -1,0 +1,300 @@
+{
+  "__comment": [
+    "API overview — the RED metrics (Rate, Errors, Duration) plus availability.",
+    "",
+    "This is the dashboard someone opens first during an incident, so it is",
+    "deliberately small. A dashboard with forty panels is a dashboard nobody",
+    "reads under pressure: the useful signal is buried and the eye has nowhere",
+    "to start. Anything not answering 'is it broken, and roughly where' belongs",
+    "on a drill-down dashboard instead.",
+    "",
+    "Panel thresholds mirror the alert rules in alerts-application.yaml, so a",
+    "panel turning red and a page firing mean the same thing. Divergence there",
+    "is how people learn to distrust dashboards."
+  ],
+  "uid": "hr-api-overview",
+  "title": "HR / API Overview",
+  "tags": ["hr", "api", "overview"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(up{job=\"hr-backend\"}, namespace)",
+        "refresh": 1,
+        "includeAll": false
+      },
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Healthy instances",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(up{job=\"hr-backend\", namespace=\"$namespace\"})",
+          "legendFormat": "up"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "green", "value": 2 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Requests / sec",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\", namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "rps"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "5xx rate",
+      "description": "Pages above 5% — see BackendHighErrorRate.",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\", namespace=\"$namespace\", status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{job=\"hr-backend\", namespace=\"$namespace\"}[5m])), 0.001)",
+          "legendFormat": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "p95 latency",
+      "description": "Budget is 1s. The product's central claim is that it is faster than the incumbent.",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\", namespace=\"$namespace\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.5 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "DB connections in use",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(hikaricp_connections_active{job=\"hr-backend\", namespace=\"$namespace\"}) / clamp_min(sum(hikaricp_connections_max{job=\"hr-backend\", namespace=\"$namespace\"}), 1)",
+          "legendFormat": "pool"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.7 },
+              { "color": "red", "value": 0.9 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Tenant isolation errors",
+      "description": "Should always be zero. Any non-zero value is a potential breach — escalate rather than debug quietly.",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(increase(hr_errors_total{code=~\"TENANT_CONTEXT_MISSING|TENANT_MISMATCH\"}[1h]))",
+          "legendFormat": "isolation"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Request rate by status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"hr-backend\", namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "stacking": { "mode": "normal" } } } }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Latency percentiles",
+      "description": "p50 shows the typical experience; p99 shows the worst. A widening gap means a subset of requests is degrading — usually one endpoint or one tenant.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\", namespace=\"$namespace\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\", namespace=\"$namespace\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\", namespace=\"$namespace\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Slowest endpoints (p95)",
+      "description": "Top 10 by p95. Where to look first when overall latency moves.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (uri, le) (rate(http_server_requests_seconds_bucket{job=\"hr-backend\", namespace=\"$namespace\"}[5m]))))",
+          "legendFormat": "{{uri}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Errors by code",
+      "description": "Machine-readable codes from the API error envelope. Far more useful than HTTP status alone — VALIDATION_FAILED and LEAVE_BALANCE_INSUFFICIENT are both 4xx but mean very different things.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (code) (rate(hr_errors_total{namespace=\"$namespace\"}[5m])))",
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Authentication",
+      "description": "A spike in failures across many tenants usually means we broke token validation. Concentrated on one tenant, it is more likely credential stuffing.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(hr_auth_login_total{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{result}}"
+        },
+        {
+          "expr": "sum(rate(hr_auth_token_reuse_detected_total{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "token reuse detected"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Database connection pool",
+      "description": "Pending connections above zero while active is at max means requests are queuing. Check for a slow query before enlarging the pool — a bigger pool usually moves the problem to the database.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(hikaricp_connections_active{job=\"hr-backend\", namespace=\"$namespace\"})",
+          "legendFormat": "active"
+        },
+        {
+          "expr": "sum(hikaricp_connections_idle{job=\"hr-backend\", namespace=\"$namespace\"})",
+          "legendFormat": "idle"
+        },
+        {
+          "expr": "sum(hikaricp_connections_pending{job=\"hr-backend\", namespace=\"$namespace\"})",
+          "legendFormat": "pending"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    }
+  ]
+}

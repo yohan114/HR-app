@@ -1,0 +1,37 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hr-backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hr-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # 70% rather than 80%: the JVM needs headroom for GC, and an HR API
+          # has sharp morning peaks as everyone clocks in within a few minutes
+          # of each other.
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      # React quickly to the clock-in spike.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # Come down slowly. Scaling down into a second peak is worse than paying
+      # for a few extra minutes of capacity.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60

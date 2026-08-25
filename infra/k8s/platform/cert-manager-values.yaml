@@ -1,0 +1,32 @@
+# cert-manager
+#
+# Install with --set crds.enabled=true. The CRDs must exist before any
+# ClusterIssuer or Certificate is applied.
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# Resolve ACME DNS-01 challenges against public resolvers rather than the
+# cluster's own. Without this, split-horizon DNS inside the VPC can make
+# cert-manager believe its challenge record has not propagated, and issuance
+# hangs with no useful error.
+dns01RecursiveNameservers: "1.1.1.1:53,8.8.8.8:53"
+dns01RecursiveNameserversOnly: true
+
+securityContext:
+  runAsNonRoot: true
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+prometheus:
+  enabled: true

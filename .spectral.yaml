@@ -1,0 +1,22 @@
+extends: ["spectral:oas"]
+
+# House rules on top of the standard OpenAPI ruleset.
+#
+# These encode the API conventions from docs/03-architecture.md §9 so they are enforced on every
+# pull request rather than remembered in review.
+rules:
+  # Every operation needs a stable operationId — the client generators use it for method names,
+  # so changing one is a breaking change for consumers.
+  operation-operationId: error
+  operation-operationId-unique: error
+  operation-description: warn
+  operation-tags: error
+
+  # Descriptions are the API documentation. There is no second place where this gets written.
+  oas3-schema: error
+  info-description: error
+
+  # Catches schemas orphaned by a refactor. Kept at `info` rather than `warn` because shared
+  # components are legitimately defined slightly ahead of the endpoints that use them — the
+  # Idempotency-Key parameter lands here in Phase 0 but is first referenced in Phase 2.
+  oas3-unused-component: info

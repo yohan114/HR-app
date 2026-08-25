@@ -1,0 +1,103 @@
+name: API Clients
+
+on:
+  push:
+    branches: [main]
+    paths: ['spec/**', 'clients/**', 'backend/build.gradle.kts', '.github/workflows/clients.yml']
+  pull_request:
+    paths: ['spec/**', 'clients/**', 'backend/build.gradle.kts', '.github/workflows/clients.yml']
+
+concurrency:
+  group: clients-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+jobs:
+  # The committed clients must match what the current spec generates. Without this gate the two
+  # drift silently: someone edits the spec, forgets to regenerate, and the mobile teams build
+  # against a contract the server no longer honours.
+  freshness:
+    name: Committed clients are up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Regenerate all clients
+        working-directory: backend
+        run: ./gradlew generateAllClients
+
+      - name: Fail if the committed output differs
+        run: |
+          if ! git diff --exit-code --stat clients/; then
+            echo ""
+            echo "::error::Generated clients are stale. Run 'cd backend && ./gradlew generateAllClients' and commit the result."
+            git diff clients/ | head -200
+            exit 1
+          fi
+          echo "Committed clients match the spec."
+
+  kotlin:
+    name: Kotlin client compiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Compiles the generated sources against the same dependencies the Android module will use.
+      # Until android/ exists, this is the only thing that would notice a spec change producing a
+      # client that does not build.
+      - name: Compile
+        working-directory: backend
+        run: ./gradlew :client-verify:compileKotlin
+
+  typescript:
+    name: TypeScript client type-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Type-check under strict mode
+        working-directory: clients/typescript
+        run: >
+          npx --yes -p typescript@5.7.3 tsc
+          --noEmit --strict
+          --target ES2022 --module ESNext --moduleResolution bundler
+          --lib ES2022,DOM
+          index.ts
+
+  swift:
+    name: Swift client builds
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the Swift package
+        working-directory: clients/swift
+        run: swift build

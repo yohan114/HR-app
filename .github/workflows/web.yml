@@ -1,0 +1,48 @@
+name: Web Admin
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', 'clients/typescript/**', '.github/workflows/web.yml']
+  pull_request:
+    paths: ['web/**', 'clients/typescript/**', '.github/workflows/web.yml']
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Type-check & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      # Runs against the committed generated client, so a spec change that breaks the console
+      # fails here rather than in someone's browser.
+      - name: Type-check
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          retention-days: 7

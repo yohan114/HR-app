@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: observability
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      # Bound memory before the collector becomes the thing that falls over.
+      # A collector OOM takes observability down exactly when it is needed.
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 20
+
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: ${env:ENVIRONMENT}
+            action: upsert
+
+      # Scrubbing is not optional. Traces carry HTTP attributes, and this API's
+      # request bodies contain salaries, national identity numbers and bank
+      # account details. A trace backend is queried far more casually than the
+      # database is, and by more people.
+      attributes/scrub:
+        actions:
+          - key: http.request.body
+            action: delete
+          - key: http.response.body
+            action: delete
+          - key: db.statement.parameters
+            action: delete
+          - key: http.request.header.authorization
+            action: delete
+          - key: http.request.header.cookie
+            action: delete
+          - key: user.email
+            action: hash
+          - key: enduser.id
+            action: hash
+
+      # Keep every error and every slow request; sample the rest. Full-fidelity
+      # tracing of a healthy request path is expensive and tells us little.
+      tail_sampling:
+        decision_wait: 10s
+        policies:
+          - name: errors
+            type: status_code
+            status_code: { status_codes: [ERROR] }
+          - name: slow
+            type: latency
+            latency: { threshold_ms: 1000 }
+          - name: payroll-runs
+            type: string_attribute
+            string_attribute: { key: hr.operation, values: [payroll.run] }
+          - name: baseline
+            type: probabilistic
+            probabilistic: { sampling_percentage: 5 }
+
+    exporters:
+      otlp/tempo:
+        endpoint: tempo.observability:4317
+        tls: { insecure: true }
+      prometheusremotewrite:
+        endpoint: http://prometheus.observability:9090/api/v1/write
+      otlphttp/loki:
+        endpoint: http://loki.observability:3100/otlp
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes/scrub, tail_sampling, resource, batch]
+          exporters: [otlp/tempo]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [prometheusremotewrite]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes/scrub, resource, batch]
+          exporters: [otlphttp/loki]
+
+      telemetry:
+        logs:
+          level: info

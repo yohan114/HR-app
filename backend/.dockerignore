@@ -1,0 +1,22 @@
+# Keep the build context small — everything here is either rebuilt inside the
+# image or must never enter one.
+
+build/
+.gradle/
+.kotlin/
+out/
+
+*.iml
+.idea/
+.vscode/
+
+# Never ship credentials into an image layer. Layers are readable by anyone who
+# can pull the image, and deleting a file in a later layer does not remove it.
+.env
+.env.*
+*.pem
+*.p12
+secrets/
+
+**/*.md
+**/.DS_Store

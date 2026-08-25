@@ -1,0 +1,282 @@
+{
+  "__comment": [
+    "Domain health — payroll, attendance, sync and workflow.",
+    "",
+    "The dashboard a generic monitoring setup would never produce, because",
+    "every panel here is about what the product does rather than what a JVM",
+    "does. An infrastructure dashboard tells you a component is unhealthy;",
+    "this one tells you whether people are about to be affected — someone",
+    "not paid, a punch lost, an approval never seen.",
+    "",
+    "Panels are ordered by consequence. Payroll first: a wrong or missed run",
+    "is a legal problem in every market we target, not merely an outage."
+  ],
+  "uid": "hr-domain-health",
+  "title": "HR / Domain Health",
+  "tags": ["hr", "domain", "payroll", "attendance"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      },
+      {
+        "name": "tenant",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(hr_payroll_run_total, tenant)",
+        "refresh": 2,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "description": "Only payroll and workflow metrics carry a tenant label — see Metrics.Tag.TENANT for why. Per-tenant investigation of anything else goes through traces and logs."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Payroll",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Runs failed (24h)",
+      "description": "Any non-zero value needs a human. Runs are resumable by phase — establish which phase failed before restarting.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(increase(hr_payroll_run_total{result=\"failed\", tenant=~\"$tenant\"}[24h]))",
+          "legendFormat": "failed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Snapshots missing",
+      "description": "A committed run without a retrievable input snapshot is no longer reproducible. That is a compliance problem — we could not answer 'why was I paid this?' months later. Should always be zero.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(increase(hr_payroll_snapshot_missing_total[24h]))",
+          "legendFormat": "missing"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Run duration by phase",
+      "description": "Budget is ten minutes for 10,000 employees. A run sitting in one phase for over an hour is wedged — most often on the Redis lock. Check the lock holder is still alive before clearing anything.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "max by (phase, tenant) (hr_payroll_run_duration_seconds{tenant=~\"$tenant\"})",
+          "legendFormat": "{{tenant}} / {{phase}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 600 },
+              { "color": "red", "value": 3600 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Anomaly rate",
+      "description": "Results flagged against the prior period. A high rate usually means something legitimate and large happened — an annual increment, a restructure — or a pay item formula changed. Either way a human confirms before the run is approved.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (tenant) (hr_payroll_anomalies_total{tenant=~\"$tenant\"}) / clamp_min(sum by (tenant) (hr_payroll_results_total{tenant=~\"$tenant\"}), 1)",
+          "legendFormat": "{{tenant}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Attendance and sync",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Punch ingestion by source",
+      "description": "Silence during working hours means ingestion is broken. Mobile clients queue locally and deliver eventually; a device-based feed may be losing data outright.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (source) (rate(hr_attendance_punch_total[5m]))",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 20, "stacking": { "mode": "normal" } } } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Unprocessed punches",
+      "description": "daily_attendance is derived state and always recomputable, so nothing is lost — but until it catches up, employees see stale attendance and managers see an incomplete team board.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(hr_attendance_unprocessed_punches)",
+          "legendFormat": "backlog"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10000 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Outbox entries lost (24h)",
+      "description": "Each one is a user action shown as queued that never arrived after seven days of retries. The affected users need telling; the payload is retained so it can be resubmitted.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(increase(hr_outbox_failed_total[24h]))",
+          "legendFormat": "failed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Forced full resyncs",
+      "description": "Expected for devices offline longer than the 90-day change-feed retention. A spike suggests the feed is being pruned too aggressively, or clients are failing to persist their cursor — the latter is a client bug that also burns bandwidth.",
+      "gridPos": { "h": 5, "w": 18, "x": 6, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(hr_sync_cursor_expired_total[1h])) * 3600",
+          "legendFormat": "resyncs/hour"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Workflow and notifications",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "collapsed": false
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Overdue approvals",
+      "description": "Before assuming inattentive managers, check notification delivery for that tenant — a broken push token looks exactly the same from here.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (tenant, workflow_type) (hr_workflow_tasks_overdue{tenant=~\"$tenant\"})",
+          "legendFormat": "{{tenant}} / {{workflow_type}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Notification delivery",
+      "description": "A failure rate above 20% is usually an expired FCM or APNs credential. Approvals silently stop reaching people, which presents as a workflow problem rather than an infrastructure one.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (channel, status) (rate(hr_notification_delivery_total[5m]))",
+          "legendFormat": "{{channel}} / {{status}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    }
+  ]
+}

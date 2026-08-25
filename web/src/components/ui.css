@@ -1,0 +1,118 @@
+/* Component styles. Tokens live in ../styles.css. */
+
+/* --- Button ------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  /* 40px tall: comfortably above the 24px WCAG 2.2 target-size minimum, and large enough
+     to be clicked accurately on a laptop trackpad. */
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn--primary { background: var(--color-brand-primary); color: var(--color-brand-on-primary); }
+.btn--primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+.btn--secondary { background: var(--color-surface-raised); color: var(--color-on-surface); border-color: var(--color-outline); }
+.btn--secondary:hover:not(:disabled) { background: var(--color-surface-variant); }
+
+.btn--danger { background: var(--color-danger); color: #fff; }
+.btn--ghost { background: transparent; color: var(--color-brand-primary); }
+.btn--ghost:hover:not(:disabled) { background: var(--color-brand-primary-container); }
+
+.btn__spinner,
+.state__spinner {
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- Field -------------------------------------------------------------- */
+.field { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4); }
+.field__label { font-size: var(--text-body-medium-size); font-weight: 500; color: var(--color-on-surface-muted); }
+
+.field__input {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  color: var(--color-on-surface);
+  font: inherit;
+}
+
+.field__input--error { border-color: var(--color-danger); }
+.field__hint { margin: 0; font-size: var(--text-body-medium-size); color: var(--color-on-surface-muted); }
+.field__error { margin: 0; font-size: var(--text-body-medium-size); color: var(--color-danger); }
+
+/* --- Card --------------------------------------------------------------- */
+.card {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--color-outline);
+}
+
+.card__title { margin: 0; font-size: var(--text-title-large-size); font-weight: 600; }
+.card__body { padding: var(--space-6); }
+
+/* --- States ------------------------------------------------------------- */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--color-on-surface-muted);
+}
+
+.state--error { color: var(--color-danger); }
+.state__title { margin: 0; font-size: var(--text-title-large-size); font-weight: 600; color: var(--color-on-surface); }
+.state__description { margin: 0; max-width: 46ch; }
+
+/* --- Table -------------------------------------------------------------- */
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-body-large-size); }
+.table th,
+.table td { padding: var(--space-3) var(--space-4); text-align: left; border-bottom: 1px solid var(--color-outline); }
+.table th { font-size: var(--text-body-medium-size); font-weight: 600; color: var(--color-on-surface-muted); }
+.table tbody tr:hover { background: var(--color-surface-variant); }
+
+/* --- Badge -------------------------------------------------------------- */
+.badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-label-small-size);
+  font-weight: 600;
+}
+
+.badge--neutral { background: var(--color-surface-variant); color: var(--color-on-surface-muted); }
+.badge--success { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
+.badge--warning { background: color-mix(in srgb, var(--color-warning) 18%, transparent); color: var(--color-warning); }
+.badge--danger  { background: color-mix(in srgb, var(--color-danger) 18%, transparent); color: var(--color-danger); }

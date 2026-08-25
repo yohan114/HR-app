@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Obviously-fake Terraform outputs, used ONLY to render an overlay in CI so that",
+    "`kustomize build` and `kubeconform` can validate the manifests without AWS access.",
+    "",
+    "Every value here is deliberately implausible (account 000000000000, .invalid",
+    "hostnames) so that a rendered overlay from this fixture could never be mistaken",
+    "for a real one, or accidentally applied to a cluster."
+  ],
+  "backend_service_account_role_arn": { "value": "arn:aws:iam::000000000000:role/fixture-backend" },
+  "external_secrets_role_arn": { "value": "arn:aws:iam::000000000000:role/fixture-external-secrets" },
+  "redis_host": { "value": "fixture-redis.invalid" },
+  "kafka_bootstrap_servers": { "value": "fixture-kafka.invalid:9098" },
+  "opensearch_endpoint": { "value": "fixture-search.invalid" },
+  "s3_buckets": {
+    "value": {
+      "documents": "fixture-documents",
+      "payslips": "fixture-payslips",
+      "attachments": "fixture-attachments",
+      "payroll-snapshots": "fixture-payroll-snapshots"
+    }
+  }
+}

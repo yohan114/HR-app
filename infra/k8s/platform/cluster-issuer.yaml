@@ -1,0 +1,41 @@
+# Let's Encrypt issuers.
+#
+# Two of them, deliberately. Staging has no rate limits and issues untrusted
+# certificates; production allows 50 certificates per registered domain per
+# week and will lock you out for the remainder of the week if you exhaust it
+# while debugging. Prove an issuance flow against staging first, every time.
+#
+# Requires cert-manager to be installed — these are its CRDs. Applying them
+# first gives a "no matches for kind ClusterIssuer" error that reads like a
+# typo rather than an ordering problem.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    # A team alias, not an individual — expiry warnings must not go to someone
+    # who has left.
+    email: platform@hrapp.io
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: platform@hrapp.io
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

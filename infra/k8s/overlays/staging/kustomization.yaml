@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: hr-staging
+
+resources:
+  - ../../base
+
+# Environment-specific values — role ARNs, hostnames, the image digest — are
+# rendered from Terraform outputs and are NOT committed. Run:
+#
+#   terraform -chdir=infra/terraform/environments/staging output -json > /tmp/tf.json
+#   node infra/scripts/render-overlay.mjs --environment staging \
+#     --terraform-output /tmp/tf.json --image <repo>@sha256:<digest>
+#
+# `kustomize build` fails here until that has run, which is the correct failure
+# mode: a missing file is louder than a stale placeholder.
+components:
+  - generated
+
+replicas:
+  - name: hr-backend
+    count: 2
+
+patches:
+  - path: generated/config-patch.yaml
+  - path: generated/serviceaccount-patch.yaml
+  - path: resources-patch.yaml
+  - path: ingress-patch.yaml

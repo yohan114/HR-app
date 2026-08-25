@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hr-backend
+spec:
+  # minAvailable rather than maxUnavailable so the guarantee holds however many
+  # replicas the autoscaler has settled on. With minReplicas 2 this permits one
+  # voluntary disruption at a time — node drains proceed, but never to zero.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hr-backend

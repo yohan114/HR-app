@@ -1,0 +1,24 @@
+# Local development profile — used with the Docker Compose stack in ../docker-compose.yml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hr
+    username: hr_app_login
+    password: hr_app_login
+
+  flyway:
+    url: jdbc:postgresql://localhost:5432/hr
+    user: hr_owner
+    password: hr_owner
+
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    com.hr: DEBUG
+    org.hibernate.SQL: DEBUG
+    # Uncomment to see bound parameters. Never enable outside local: bind parameters
+    # include salaries, national ids and bank account numbers.
+    # org.hibernate.orm.jdbc.bind: TRACE

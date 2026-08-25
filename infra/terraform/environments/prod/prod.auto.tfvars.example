@@ -1,0 +1,24 @@
+# Copy to prod.auto.tfvars and fill in. The real file is gitignored.
+#
+# None of these have defaults: a default here would be a guess about
+# production, and a wrong guess is either an outage or an open control plane.
+
+# Enforced by the provider's allowed_account_ids, so a plan run with a stale
+# AWS_PROFILE fails immediately rather than proposing changes to the wrong
+# account.
+aws_account_id = "000000000000"
+
+# Office egress and CI runner addresses only. 0.0.0.0/0 is rejected by a
+# variable validation — a wide-open production control plane is exactly the
+# kind of thing that gets inherited from a template and never revisited.
+api_server_allowed_cidrs = [
+  "203.0.113.0/24",  # office
+  "198.51.100.0/24", # CI runners
+]
+
+# Must match the repository the deploy workflow runs from, or the OIDC trust
+# condition will not match and AssumeRole fails.
+github_repository = "your-org/hr-platform"
+
+# Recommended before production holds real data. See variables.tf.
+# deploy_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/DeployBoundary"

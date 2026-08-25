@@ -1,0 +1,211 @@
+# Application alerts.
+#
+# ## The rule these follow
+#
+# Every alert here should wake someone up, or it should not be an alert. A
+# dashboard panel is for things worth looking at; a page is for things worth
+# interrupting a person for. Mixing the two produces alert fatigue, and an
+# on-call who has learned to ignore pages is worse than no on-call.
+#
+# So: `severity: critical` pages. `severity: warning` goes to a channel and is
+# triaged in working hours. Nothing here fires on a metric that is merely
+# unusual — only on ones that mean a user is currently unable to do something,
+# or that data is at risk.
+#
+# What is deliberately NOT alerted on, and why:
+#
+#   - CPU and memory utilisation. High CPU is not a problem; slow responses
+#     are, and those are alerted directly. The HPA handles load.
+#   - Individual pod restarts. Kubernetes restarting a pod is it working.
+#     Sustained crash-looping IS alerted.
+#   - 4xx rate. Clients sending bad requests is not our incident. A spike in
+#     401s IS alerted, because that usually means we broke authentication.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hr-backend-application
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: hr-platform
+    prometheus: platform
+spec:
+  groups:
+    # -----------------------------------------------------------------------
+    - name: hr-backend.availability
+      interval: 30s
+      rules:
+        - alert: BackendDown
+          expr: |
+            sum(up{job="hr-backend"}) == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No healthy backend instances in {{ $labels.namespace }}"
+            description: >-
+              Every backend pod is down or unreachable. The API is unavailable and
+              mobile clients are serving from local cache only — they will appear to
+              work until someone tries to submit something.
+            runbook: https://runbooks.hrapp.io/backend-down
+
+        - alert: BackendCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total{container="api"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Backend pod {{ $labels.pod }} is crash-looping"
+            description: >-
+              More than three restarts in fifteen minutes. Usually a failed migration,
+              a missing secret, or an OOM. Check the previous container's logs —
+              the current one may not have got far enough to log anything useful.
+            runbook: https://runbooks.hrapp.io/crash-loop
+
+        - alert: BackendHighErrorRate
+          expr: |
+            (
+              sum(rate(http_server_requests_seconds_count{job="hr-backend",status=~"5.."}[5m]))
+              /
+              sum(rate(http_server_requests_seconds_count{job="hr-backend"}[5m]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Over 5% of requests are failing with 5xx"
+            description: >-
+              {{ $value | humanizePercentage }} of requests are returning 5xx.
+              This is our fault, not a client's — check recent deploys first.
+            runbook: https://runbooks.hrapp.io/high-error-rate
+
+        - alert: BackendLatencyDegraded
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum(rate(http_server_requests_seconds_bucket{job="hr-backend"}[5m])) by (le)
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 API latency above 1s"
+            description: >-
+              p95 is {{ $value | humanizeDuration }}. The product's central claim is
+              that it is faster than the incumbent, whose most common review complaint
+              is that it is slow. Sustained latency here is a competitive problem as
+              well as a technical one.
+            runbook: https://runbooks.hrapp.io/latency
+
+    # -----------------------------------------------------------------------
+    - name: hr-backend.authentication
+      interval: 30s
+      rules:
+        # A spike in 401s across many users almost always means we broke token
+        # validation — a key rotation gone wrong, a clock skew, a bad deploy.
+        # One user failing to log in is a support ticket; everyone failing is an
+        # incident.
+        - alert: AuthenticationFailureSpike
+          expr: |
+            sum(rate(http_server_requests_seconds_count{job="hr-backend",uri=~"/v1/auth/.*",status="401"}[5m]))
+            > 5 * sum(rate(http_server_requests_seconds_count{job="hr-backend",uri=~"/v1/auth/.*",status="401"}[5m] offset 1h))
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Authentication failures five times the hourly baseline"
+            description: >-
+              Either we broke token validation, or there is a credential-stuffing
+              attempt in progress. Check whether failures are concentrated on one
+              tenant (attack) or spread across all of them (our bug).
+            runbook: https://runbooks.hrapp.io/auth-failures
+
+        # Reuse detection revoking a family is a security event by definition.
+        # A handful is normal — a buggy client, a user restoring a phone backup.
+        # A sustained rate is not.
+        - alert: RefreshTokenReuseDetected
+          expr: |
+            sum(rate(hr_auth_token_reuse_detected_total[15m])) * 900 > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Refresh token reuse detected {{ $value | humanize }} times in 15m"
+            description: >-
+              Each event revokes an entire token family and signs a user out
+              everywhere. A sustained rate means either a client bug replaying
+              requests, or tokens being stolen. Check whether events cluster on one
+              tenant, one device model, or one app version.
+            runbook: https://runbooks.hrapp.io/token-reuse
+
+    # -----------------------------------------------------------------------
+    # Tenant isolation
+    #
+    # These should never fire. If one does, treat it as a potential data breach
+    # and escalate immediately rather than debugging it quietly.
+    # -----------------------------------------------------------------------
+    - name: hr-backend.tenancy
+      interval: 30s
+      rules:
+        - alert: TenantContextMissing
+          expr: |
+            sum(rate(hr_errors_total{code="TENANT_CONTEXT_MISSING"}[5m])) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "A request reached the data layer with no tenant bound"
+            description: >-
+              TenantContext.require() threw. This is always a bug or an attack, never
+              normal traffic. RLS means the query returned nothing rather than
+              leaking, but the code path that got there needs finding.
+            runbook: https://runbooks.hrapp.io/tenant-context-missing
+
+        - alert: TenantMismatchAttempts
+          expr: |
+            sum(rate(hr_errors_total{code="TENANT_MISMATCH"}[5m])) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Token and tenant header disagree on {{ $value | humanize }} requests/s"
+            description: >-
+              A caller presented a token for one tenant and a header for another.
+              There is no legitimate reason for this. Identify the source before
+              anything else.
+            runbook: https://runbooks.hrapp.io/tenant-mismatch
+
+    # -----------------------------------------------------------------------
+    - name: hr-backend.dependencies
+      interval: 30s
+      rules:
+        - alert: DatabaseConnectionPoolExhausted
+          expr: |
+            (
+              hikaricp_connections_pending{job="hr-backend"} > 0
+              and
+              hikaricp_connections_active{job="hr-backend"} >= hikaricp_connections_max{job="hr-backend"}
+            )
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Database connection pool exhausted"
+            description: >-
+              Requests are queuing for connections. Usually a slow query holding
+              connections, or a leak from a transaction that never commits. Check
+              pg_stat_activity for long-running statements before scaling the pool —
+              a bigger pool usually just moves the problem to the database.
+            runbook: https://runbooks.hrapp.io/pool-exhausted
+
+        - alert: FlywayMigrationFailed
+          expr: |
+            sum(rate(hr_errors_total{code="MIGRATION_FAILED"}[5m])) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "A database migration failed"
+            description: >-
+              The pod will not become ready. Do NOT roll forward with another
+              migration — determine whether the failed one partially applied first.
+            runbook: https://runbooks.hrapp.io/migration-failed

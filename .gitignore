@@ -1,0 +1,90 @@
+# Build output
+build/
+out/
+target/
+dist/
+*.class
+*.jar
+# `**/` is required: a negation containing a slash is anchored to the repository
+# root, so `!gradle/wrapper/...` would not match `backend/gradle/wrapper/...` and
+# both wrappers would be excluded — leaving a clone unable to run ./gradlew.
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# Gradle
+.gradle/
+gradle-app.setting
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+.pnpm-store/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Android
+android/local.properties
+android/.cxx/
+android/app/release/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# iOS
+ios/Pods/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+ios/DerivedData/
+*.ipa
+*.dSYM.zip
+
+# Secrets — nothing here should ever be committed
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.p8
+*.mobileprovision
+secrets/
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Local infrastructure state
+infra/**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Test artefacts
+coverage/
+.nyc_output/
+*.hprof
+
+# Android — SDK location is per-machine
+android/local.properties
+android/.kotlin/
+android/app/schemas/
+
+# Terraform variable files — may name internal network ranges and account ids
+*.auto.tfvars
+!*.auto.tfvars.example
+terraform.tfvars
+
+# Kustomize overlay values rendered from Terraform outputs.
+# Carry account ids and internal hostnames — see infra/k8s/overlays/README.md
+infra/k8s/overlays/*/generated/
+
+# Infra check dependencies
+infra/scripts/node_modules/

@@ -1,0 +1,132 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', 'clients/kotlin/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', 'clients/kotlin/**', '.github/workflows/android.yml']
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: android
+
+      - name: Unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Assemble release
+        working-directory: android
+        run: ./gradlew :app:assembleRelease
+
+      # Enforces the 25 MB per-ABI budget from docs/05-screens-ux.md §8, which
+      # is a competitive differentiator rather than an arbitrary limit — the
+      # incumbent ships 92.5 MB. `assembleRelease` finalises with this task, so
+      # it has already run; naming it explicitly makes a size failure obvious
+      # in the run summary rather than buried in the assemble step.
+      - name: Enforce APK size budget
+        working-directory: android
+        run: ./gradlew :app:checkReleaseApkSize
+
+      - name: Report APK sizes
+        if: always()
+        working-directory: android
+        run: |
+          {
+            echo "### APK sizes"
+            echo ""
+            echo "| ABI | Size | Budget |"
+            echo "|---|---|---|"
+            for apk in app/build/outputs/apk/release/*.apk; do
+              [ -e "$apk" ] || continue
+              size=$(stat -c%s "$apk")
+              mb=$(awk "BEGIN {printf \"%.1f\", $size/1048576}")
+              abi=$(basename "$apk" | sed 's/app-\(.*\)-release.*/\1/')
+              echo "| $abi | ${mb} MB | 25.0 MB |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-report
+          path: android/app/build/reports/tests/
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Startup timing needs a real device or emulator, which the ubuntu runner can
+  # provide via KVM. Kept as a separate job because it is slow and its failure
+  # mode (a flaky emulator) should not block a unit-test signal.
+  # ---------------------------------------------------------------------------
+  macrobenchmark:
+    name: Startup benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Only on main: an emulator run per pull request is a poor trade for the
+    # signal, and startup regressions are not usually subtle.
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: android
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run startup benchmark
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          # Benchmarks on a software-rendered emulator produce numbers that
+          # vary more than the regressions they are meant to catch.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -noboot-anim
+          working-directory: android
+          script: ./gradlew :benchmark:connectedBenchmarkAndroidTest
+
+      - name: Publish benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macrobenchmark-results
+          path: android/benchmark/build/outputs/connected_android_test_additional_output/
+          retention-days: 30

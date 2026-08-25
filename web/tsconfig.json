@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    // Off because the generated client (clients/typescript/runtime.ts) subclasses Error without
+    // `override` modifiers, and we do not hand-edit generated code. Everything else in `strict`
+    // still applies to our own source.
+    "noImplicitOverride": false,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@hr/client": ["../clients/typescript/index.ts"],
+      "@hr/client/*": ["../clients/typescript/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts", "../clients/typescript"]
+}

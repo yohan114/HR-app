@@ -1,0 +1,167 @@
+name: Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths: ['infra/**', '.github/workflows/infra.yml']
+  pull_request:
+    paths: ['infra/**', '.github/workflows/infra.yml']
+
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [staging, prod]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Format
+        run: terraform fmt -check -recursive infra/terraform
+
+      # Runs without a backend or credentials, so it catches syntax and type
+      # errors on every PR without needing cloud access.
+      - name: Validate modules
+        run: |
+          for module in infra/terraform/modules/*/; do
+            echo "── $module"
+            terraform -chdir="$module" init -backend=false -input=false >/dev/null
+            terraform -chdir="$module" validate
+          done
+
+      - name: Validate ${{ matrix.environment }}
+        run: |
+          terraform -chdir=infra/terraform/environments/${{ matrix.environment }} init -backend=false -input=false >/dev/null
+          terraform -chdir=infra/terraform/environments/${{ matrix.environment }} validate
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install check dependencies
+        run: npm --prefix infra/scripts ci
+
+      # Belt and braces alongside `terraform validate`: catches unused
+      # variables and cross-module wiring mistakes that validate tolerates.
+      - name: Static wiring checks
+        run: node infra/scripts/tf-static-check.mjs infra/terraform
+
+      # Enforces the alerting conventions: a severity Alertmanager can route
+      # on, a summary and description, and a runbook on anything that pages.
+      - name: Alert rule checks
+        run: node infra/scripts/alert-rules-check.mjs infra/k8s/observability
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: infra/terraform
+          soft_fail: false
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra
+          framework: terraform,kubernetes,dockerfile
+          quiet: true
+          soft_fail: false
+
+  kubernetes:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install kustomize
+        run: |
+          curl -sfL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+          sudo mv kustomize /usr/local/bin/
+
+      # Overlay values are rendered from Terraform outputs and not committed
+      # (infra/k8s/overlays/README.md). CI has no AWS access, so it renders
+      # from a fixture of deliberately implausible values — enough to validate
+      # the manifests, impossible to mistake for a real environment.
+      - name: Render overlays from fixture
+        run: |
+          for overlay in infra/k8s/overlays/*/; do
+            env_name=$(basename "$overlay")
+            node infra/scripts/render-overlay.mjs \
+              --environment "$env_name" \
+              --terraform-output infra/k8s/fixtures/terraform-output.json \
+              --image 000000000000.dkr.ecr.ap-southeast-1.amazonaws.com/hr-backend@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          done
+
+      - name: Build overlays
+        run: |
+          for overlay in infra/k8s/overlays/*/; do
+            echo "── $overlay"
+            kustomize build "$overlay" > /dev/null
+          done
+
+      # Validates against real Kubernetes API schemas, which catches a
+      # misspelled field that YAML parsing happily accepts.
+      - name: Validate against Kubernetes schemas
+        run: |
+          curl -sfLo kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz && sudo mv kubeconform /usr/local/bin/
+          for overlay in infra/k8s/overlays/*/; do
+            kustomize build "$overlay" | kubeconform -strict -summary \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          done
+
+  docker:
+    name: Backend image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          load: true
+          tags: hr-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: hr-backend:ci
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true

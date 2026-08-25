@@ -1,0 +1,158 @@
+name: Deploy environment
+
+# Reusable workflow. Called by deploy.yml for each environment so staging and
+# production run identical steps — a production-only deployment path is one
+# that is exercised least and trusted most, which is the wrong way round.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      image:
+        description: Image digest reference. A tag is rejected by the render script.
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # GitHub environment protection rules apply here: production requires a
+    # reviewer, and the environment holds its own AWS role ARN. Staging and
+    # production credentials are never both available in one job.
+    environment:
+      name: ${{ inputs.environment }}
+
+    env:
+      AWS_REGION: ap-southeast-1
+      TF_DIR: infra/terraform/environments/${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Per-environment role. Production lives in a separate AWS account,
+          # so this is a different account entirely — see
+          # infra/terraform/environments/README.md.
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # -----------------------------------------------------------------------
+      # Infrastructure
+      # -----------------------------------------------------------------------
+      - name: Terraform init
+        run: terraform -chdir="$TF_DIR" init -input=false
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          terraform -chdir="$TF_DIR" plan -input=false -detailed-exitcode -out=tfplan || exit_code=$?
+          # -detailed-exitcode: 0 = no changes, 2 = changes present, 1 = error.
+          # Distinguishing "nothing to do" from "something to do" lets an
+          # application-only deploy skip the apply entirely.
+          echo "exit_code=${exit_code:-0}" >> "$GITHUB_OUTPUT"
+          if [ "${exit_code:-0}" = "1" ]; then exit 1; fi
+
+      - name: Terraform apply
+        if: steps.plan.outputs.exit_code == '2'
+        run: terraform -chdir="$TF_DIR" apply -input=false tfplan
+
+      # -----------------------------------------------------------------------
+      # Render the overlay from Terraform outputs
+      #
+      # This is what replaced hand-transcribing role ARNs and hostnames into
+      # committed YAML. The script refuses a tag reference, refuses to write
+      # anything credential-shaped, and fails loudly on a missing output.
+      # -----------------------------------------------------------------------
+      - name: Render kustomize overlay
+        run: |
+          terraform -chdir="$TF_DIR" output -json > /tmp/tf-output.json
+          node infra/scripts/render-overlay.mjs \
+            --environment "${{ inputs.environment }}" \
+            --terraform-output /tmp/tf-output.json \
+            --image "${{ inputs.image }}"
+
+      - name: Install kustomize
+        run: |
+          curl -sfL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$(terraform -chdir="$TF_DIR" output -raw cluster_name)"
+
+      # A server-side dry run validates against the live API server: admission
+      # webhooks, CRDs, quota. `kustomize build` alone only proves the YAML is
+      # well-formed, not that the cluster will accept it.
+      - name: Dry run
+        run: |
+          kustomize build "infra/k8s/overlays/${{ inputs.environment }}" \
+            | kubectl apply --dry-run=server -f -
+
+      - name: Apply
+        run: |
+          kustomize build "infra/k8s/overlays/${{ inputs.environment }}" \
+            | kubectl apply -f -
+
+      # -----------------------------------------------------------------------
+      # Verify
+      # -----------------------------------------------------------------------
+      - name: Wait for rollout
+        id: rollout
+        run: |
+          kubectl -n "hr-${{ inputs.environment }}" rollout status deployment/hr-backend --timeout=10m
+
+      - name: Smoke test
+        run: |
+          # Readiness only goes green after Flyway has migrated and Hibernate
+          # has validated the schema, so this is a real check that the release
+          # is compatible with the database — not just that a pod started.
+          kubectl -n "hr-${{ inputs.environment }}" run smoke-test-${{ github.run_id }} \
+            --rm --attach --restart=Never --quiet \
+            --image=curlimages/curl:8.11.1 \
+            --command -- curl -fsS --max-time 10 \
+            "http://hr-backend/actuator/health/readiness"
+
+      # Rollback on failure, not on cancellation. `undo` returns to the
+      # previous ReplicaSet, which is well-defined precisely because the image
+      # is pinned by digest rather than a tag that may have moved.
+      - name: Roll back on failure
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          echo "::error::Rollout failed — rolling back"
+          kubectl -n "hr-${{ inputs.environment }}" rollout undo deployment/hr-backend
+          kubectl -n "hr-${{ inputs.environment }}" rollout status deployment/hr-backend --timeout=5m
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy: ${{ inputs.environment }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`${{ inputs.image }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Terraform | ${{ steps.plan.outputs.exit_code == '2' && 'applied changes' || 'no changes' }} |"
+            echo "| Rollout | ${{ steps.rollout.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

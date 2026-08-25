@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.HR" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Handed over to the Compose UI immediately; exists so the cold-start window is branded
+         rather than white. Cold start budget is 1.2s (docs/05-screens-ux.md §8). -->
+    <style name="Theme.HR.Splash" parent="Theme.HR" />
+</resources>

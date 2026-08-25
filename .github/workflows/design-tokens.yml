@@ -1,0 +1,69 @@
+name: Design Tokens
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'design/**'
+      - 'android/app/src/main/kotlin/com/hr/app/ui/theme/Tokens.kt'
+      - 'web/src/tokens.css'
+      - 'ios/Sources/HRCore/DesignTokens.swift'
+      - '.github/workflows/design-tokens.yml'
+  pull_request:
+    paths:
+      - 'design/**'
+      - 'android/app/src/main/kotlin/com/hr/app/ui/theme/Tokens.kt'
+      - 'web/src/tokens.css'
+      - 'ios/Sources/HRCore/DesignTokens.swift'
+      - '.github/workflows/design-tokens.yml'
+
+concurrency:
+  group: design-tokens-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tokens:
+    name: Contrast & freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The generator refuses to emit anything if a colour pair fails WCAG AA,
+      # so --check covers both concerns: contrast, and whether the committed
+      # platform files match the token source.
+      #
+      # Unlike the API clients, these files ARE committed and checked for
+      # freshness rather than gitignored — they contain no account ids or
+      # hostnames, and having them in the diff is exactly what makes a colour
+      # change reviewable across all three platforms at once.
+      - name: Verify contrast and generated files
+        run: node design/generate.mjs --check
+
+      # A CSS variable referenced but never defined renders as nothing —
+      # invisible text, a missing border — and no build step notices.
+      - name: Verify every CSS variable resolves
+        working-directory: web/src
+        run: |
+          node -e "
+          const fs = require('fs')
+          const files = ['tokens.css', 'styles.css', 'shell.css', 'components/ui.css']
+          const defined = new Set(), used = new Set()
+          for (const f of files) {
+            const t = fs.readFileSync(f, 'utf8')
+            for (const m of t.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)) defined.add(m[1])
+            for (const m of t.matchAll(/var\((--[a-z0-9-]+)/g)) used.add(m[1])
+          }
+          const missing = [...used].filter(v => !defined.has(v)).sort()
+          if (missing.length) {
+            console.error('CSS variables referenced but never defined:')
+            missing.forEach(v => console.error('  ' + v))
+            process.exit(1)
+          }
+          console.log('all ' + used.size + ' referenced variables resolve')
+          "

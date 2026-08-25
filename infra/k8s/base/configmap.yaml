@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hr-backend-config
+data:
+  # Non-secret configuration only. Anything that would be damaging to read
+  # belongs in externalsecret.yaml — a ConfigMap is readable by anything with
+  # namespace access and appears in plain text in `kubectl describe`.
+  springProfiles: "prod"
+  redisHost: "hr-redis.internal"
+  otlpEndpoint: "http://otel-collector.observability:4317"

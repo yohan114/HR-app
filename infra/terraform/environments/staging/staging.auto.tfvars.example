@@ -1,0 +1,8 @@
+# Copy to staging.auto.tfvars and fill in. The real file is gitignored.
+
+github_repository = "your-org/hr-platform"
+
+# The production AWS account, once it exists. Grants it pull access to the
+# container registry this account owns, so a single build can be deployed to
+# both environments. Empty is valid — staging works on its own.
+image_pull_account_ids = []

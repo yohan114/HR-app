@@ -1,0 +1,15 @@
+{
+  "name": "hr-infra-scripts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Static checks that run without Terraform, Prometheus or a cloud account",
+  "scripts": {
+    "check:terraform": "node tf-static-check.mjs ../terraform",
+    "check:alerts": "node alert-rules-check.mjs ../k8s/observability",
+    "check": "npm run check:terraform && npm run check:alerts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

@@ -1,0 +1,40 @@
+# Namespaces for the platform components and the application.
+#
+# `kubernetes.io/metadata.name` is set automatically by the API server, and the
+# application's NetworkPolicy selects the ingress namespace by that label — so
+# renaming a namespace here breaks ingress traffic in a way that looks like a
+# controller fault rather than a label mismatch.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+  labels:
+    app.kubernetes.io/part-of: hr-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    app.kubernetes.io/part-of: hr-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-nginx
+  labels:
+    app.kubernetes.io/part-of: hr-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns
+  labels:
+    app.kubernetes.io/part-of: hr-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/part-of: hr-platform

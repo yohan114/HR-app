@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hr-backend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hr-backend
+  policyTypes: [Ingress, Egress]
+
+  ingress:
+    # Only the ingress controller may reach the API. Nothing else in the
+    # cluster has a reason to, and default-open networking is how a compromised
+    # sidecar in an unrelated namespace becomes a data breach.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # PostgreSQL, Redis, Kafka, OpenSearch — all outside the cluster, so this
+    # is a CIDR rule scoped to the VPC rather than a pod selector.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 9200
+
+    # Outbound HTTPS for push providers (FCM, APNs), S3 and SMTP over TLS.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Block the instance metadata service. Without this, an SSRF in
+              # the application can read node IAM credentials — one of the most
+              # commonly exploited paths out of a container.
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443

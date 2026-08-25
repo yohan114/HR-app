@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hr-backend
+  annotations:
+    # Staging issuer: untrusted certificates, but no rate limit. Proving an
+    # issuance flow against the production issuer risks exhausting the weekly
+    # quota for the whole registered domain.
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  tls:
+    - hosts:
+        - staging-api.hrapp.io
+      secretName: hr-backend-tls
+  rules:
+    - host: staging-api.hrapp.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hr-backend
+                port:
+                  name: http

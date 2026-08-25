@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing is backed up or transferred to a new device.
+
+  The local database is a cache of tenant data encrypted with a Keystore key that cannot leave
+  this device, so a restored backup would be unreadable anyway. More importantly, the sealed
+  refresh token must not survive a device transfer: a restored session on a different phone is
+  exactly the property biometric sealing exists to prevent.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

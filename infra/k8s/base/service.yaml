@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hr-backend
+  labels:
+    app.kubernetes.io/name: hr-backend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hr-backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

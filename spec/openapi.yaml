@@ -1,0 +1,1294 @@
+openapi: 3.1.0
+
+info:
+  title: HR Platform API
+  version: 1.0.0-alpha.1
+  description: |
+    Multi-tenant HR platform API.
+
+    **This specification is the contract.** Server interfaces and the Kotlin, Swift and TypeScript
+    clients are all generated from it, and a breaking change to a published version fails CI.
+    See `docs/03-architecture.md` §9.
+
+    ## Tenancy
+
+    Every request is resolved to exactly one tenant. Precedence, highest first:
+
+    1. The `tenant_id` claim in the bearer token — authoritative once authenticated.
+    2. The `X-Tenant-Code` header — for the unauthenticated login and org-resolve endpoints.
+    3. The request subdomain.
+
+    Supplying a token and a conflicting `X-Tenant-Code` is rejected with `TENANT_MISMATCH`.
+
+    ## Errors
+
+    Every non-2xx response uses one envelope. Clients localise from the machine-readable `code`,
+    never from `message` — the server cannot reliably know the caller's locale, and we ship in
+    six languages.
+
+    ## Pagination
+
+    Cursor-based everywhere. Offset pagination is not offered on tenant-scoped collections: it
+    re-scans skipped rows and silently drops and duplicates records on concurrently-written
+    tables such as attendance and audit.
+
+    ## Idempotency
+
+    Every unsafe method accepts an `Idempotency-Key` header and it is **required** for endpoints
+    the mobile outbox can replay. A repeat of a key already processed returns the original
+    response rather than applying the operation twice.
+  contact:
+    name: HR Platform Engineering
+  license:
+    name: Proprietary
+    # OpenAPI 3.1 expects an SPDX expression here. There is no SPDX code for "all rights
+    # reserved", so the spec's own LicenseRef- escape hatch is the correct form.
+    identifier: LicenseRef-Proprietary
+
+servers:
+  - url: https://api.hrapp.io
+    description: Production
+  - url: https://staging-api.hrapp.io
+    description: Staging
+  - url: http://localhost:8080
+    description: Local
+
+tags:
+  - name: Authentication
+    description: Tenant resolution, sign-in, token lifecycle, device registration
+  # The Sync tag and GET /v1/sync are deliberately absent until the endpoint exists (P0-BE-33).
+  # A documented-but-unimplemented operation ships a generated client method that 404s, which is
+  # exactly the drift ApiContractTest prevents. It returns here with its implementation.
+  - name: Directory
+    description: Employee directory and reporting hierarchy
+  - name: Employees
+    description: Employee profiles, with per-field permissions applied server-side
+  - name: Reference
+    description: Reference taxonomies — configurable lookup lists
+  - name: Forms
+    description: Server-rendered form schemas — how a tenant-defined field reaches mobile without an app release
+  - name: Me
+    description: The authenticated user's own context
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/auth/resolve-tenant:
+    post:
+      tags: [Authentication]
+      summary: Resolve an organisation from a work email or org code
+      description: |
+        The first step of sign-in. Deliberately does **not** reveal whether a user account exists —
+        it resolves the organisation only, so this endpoint cannot be used to enumerate accounts.
+
+        This replaces asking the user to type a "service URL", which is a common source of
+        support load in comparable products.
+      operationId: resolveTenant
+      security: []
+      parameters:
+        # Required: the tenant is resolved by the server's request filter from this header (or
+        # from the subdomain). Send the same value as `orgCode` in the body.
+        - $ref: '#/components/parameters/TenantCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveTenantRequest'
+      responses:
+        '200':
+          description: Organisation resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveTenantResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/auth/token:
+    post:
+      tags: [Authentication]
+      summary: Sign in with a password
+      description: |
+        Exchanges credentials for an access and refresh token pair, and registers the calling
+        device in the same round trip so the client can offer biometric enrolment immediately.
+
+        Failures are deliberately uniform: a wrong password and an unknown username both return
+        `INVALID_CREDENTIALS`, so this endpoint cannot be used to enumerate accounts. Repeated
+        failures lock the account per the tenant's password policy.
+      operationId: issueToken
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TenantCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordGrantRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: |
+            Invalid credentials, or MFA is required. `MFA_REQUIRED` carries an `mfaToken` in
+            `details` which must be presented to `/v1/auth/mfa/verify`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/auth/token/refresh:
+    post:
+      tags: [Authentication]
+      summary: Exchange a refresh token for a new access token
+      description: |
+        Refresh tokens are single-use and rotate on every exchange.
+
+        If a token that has already been used is presented again, the most likely explanation is
+        theft, so the entire token family is revoked and every device sharing that login session
+        must re-authenticate. The response is `TOKEN_REUSE_DETECTED`.
+
+        Requires `X-Tenant-Code`: the token lookup is itself tenant-scoped by row-level security,
+        so the tenant must be known before the token can be found.
+      operationId: refreshToken
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TenantCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Rotated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/token/biometric:
+    post:
+      tags: [Authentication]
+      summary: Exchange a device-sealed refresh token after a biometric assertion
+      description: |
+        The core of the "no password after enrolment" experience.
+
+        The refresh token is sealed at enrolment in the device's Android Keystore or iOS Secure
+        Enclave under a key that requires user authentication. The OS releases it only after a
+        successful fingerprint or face match, and invalidates the key entirely if the device's
+        enrolled biometrics change.
+
+        The server therefore trusts the *presentation* of the sealed token as evidence that the
+        biometric check passed — it never receives or stores biometric data itself.
+
+        Two conditions beyond a normal refresh: the token must have been issued to the device
+        presenting it, and that device must have completed biometric enrolment. Together these
+        stop a token exfiltrated from one device being replayed from another.
+      operationId: biometricToken
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TenantCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BiometricGrantRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Device revoked, or re-authentication with a password is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+
+  /v1/auth/devices:
+    get:
+      tags: [Authentication]
+      summary: List the current user's registered devices
+      description: |
+        Powers the "where am I signed in?" screen. The device making the request is flagged with
+        `current: true` so the client can avoid offering the user a way to revoke themselves
+        without warning.
+      operationId: listDevices
+      responses:
+        '200':
+          description: Devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Device'
+    post:
+      tags: [Authentication]
+      summary: Register the current device
+      description: |
+        Registers or updates a device for the authenticated user, including its push token.
+
+        Called on sign-in and again whenever the push token rotates. Idempotent on
+        `(user, deviceId)`: re-registering an existing device updates it rather than creating a
+        duplicate.
+      operationId: registerDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceRequest'
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+
+  /v1/auth/devices/{id}:
+    delete:
+      tags: [Authentication]
+      summary: Revoke a device
+      description: |
+        Revokes the device and every refresh token bound to it. Takes effect immediately for
+        refresh and biometric grants; an access token already issued remains valid until it
+        expires, at most fifteen minutes.
+
+        Note the parameter is the device record's `id` (a UUID), not its `deviceId` (the
+        client-generated string). The two are distinct and naming the path variable `deviceId`
+        was actively misleading.
+      operationId: revokeDevice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The device record's UUID, as returned by `GET /v1/auth/devices`.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Revoked
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Sign out
+      description: |
+        Revokes the token family the presented refresh token belongs to. Other devices stay signed
+        in — signing a user out everywhere is a separate, deliberate action.
+
+        The body is optional. Without it the caller's entire set of sessions is revoked, which is
+        the correct fallback when a client has lost track of its refresh token.
+
+        Never fails: sign-out is idempotent and a client must always be able to end its session.
+      operationId: logout
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '204':
+          description: Signed out
+
+  /v1/auth/.well-known/jwks.json:
+    get:
+      tags: [Authentication]
+      summary: Public JSON Web Key Set
+      description: |
+        The public half of the key used to sign access tokens, so that other services, an API
+        gateway or a third-party integration can verify our tokens without holding any credential
+        of their own.
+
+        The application itself does not call this endpoint — it verifies with the in-process
+        public key rather than issuing an HTTP request to itself.
+
+        During a key rotation window this returns both the outgoing and incoming keys, so tokens
+        signed with either continue to verify.
+      operationId: getJwks
+      security: []
+      responses:
+        '200':
+          description: JWK set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwkSet'
+
+  /v1/directory/search:
+    get:
+      tags: [Directory]
+      summary: Search the employee directory
+      description: |
+        Available to every authenticated employee — finding a colleague's extension is not a
+        privileged operation, and gating it would mean most of the workforce could not use the
+        feature they open most often.
+
+        What makes that safe is what the response omits. Salary, bank details, identity documents,
+        date of birth and home address are never selected by the query, so there is nothing to
+        leak. Anything more sensitive goes through the profile endpoint, which applies
+        , a data-scope check and field-level permissions.
+
+        Results are weighted so a name match outranks an employee-code match, which outranks an
+        email match. Exited and not-yet-joined employees are excluded.
+      operationId: searchDirectory
+      parameters:
+        - name: query
+          in: query
+          description: Free text. Tolerates whatever a person types — unbalanced quotes and stray operators do not produce an error.
+          schema: { type: string }
+        - name: departmentId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: locationId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          description: Opaque cursor from a previous response.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Matching colleagues
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryPage'
+
+  /v1/directory/employees/{id}/reports:
+    get:
+      tags: [Directory]
+      summary: Direct reports of an employee
+      description: |
+        One level only. The org chart expands a branch at a time rather than fetching an entire
+        subtree, which keeps the payload small for a deep organisation and matches how the screen
+        is actually used.
+      operationId: listDirectReports
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Direct reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DirectoryEntry'
+
+  /v1/reference:
+    get:
+      tags: [Reference]
+      summary: Several reference taxonomies in one call
+      description: |
+        The mobile clients sync these as a unit and cache them indefinitely — they change perhaps
+        twice a year. Serving them individually would mean four round trips to render one form,
+        which is the chattiness that makes an app feel slow regardless of how fast each call is.
+      operationId: listReferenceData
+      parameters:
+        - name: tables
+          in: query
+          description: Kebab-case taxonomy names, e.g. `blood-group`. Omit to fetch all of them.
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: Taxonomy name to its items
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ReferenceItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/reference/{table}:
+    get:
+      tags: [Reference]
+      summary: One reference taxonomy
+      description: Kebab-case taxonomy name, e.g. `employee-category`.
+      operationId: listReferenceTable
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema: { type: string }
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReferenceItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/forms/{entityType}:
+    get:
+      tags: [Forms]
+      summary: The form schema for an entity type
+      description: |
+        Describes a form well enough for a client to render it without knowing what the fields
+        are — so a tenant can add a field in the admin console and have it appear on Android and
+        iOS on the next sync. No code change, no app release, no store review.
+
+        The schema covers the **whole** form: built-in and tenant-defined fields together, in one
+        ordered list of sections. The alternative — a hardcoded form with a custom-fields lump at
+        the bottom — cannot interleave a tenant's field with the built-in one it relates to, and
+        puts a customer's mandatory field below the save button.
+
+        **Permissions are already applied.** Fields the caller may not see are absent, not
+        flagged; fields they may see but not change arrive with `editable: false`. The client does
+        not filter, and cannot leak what it never received.
+
+        Clients cache by `version` and re-render only when it changes. The version is a hash of
+        the definitions, not a timestamp, so two servers behind a load balancer agree.
+      operationId: getFormSchema
+      parameters:
+        - name: entityType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [employee, company, location, department, designation]
+        - name: Accept-Language
+          in: header
+          required: false
+          description: First language tag wins. Labels fall back through region, then English, then the field key.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Form schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormSchema'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/employees/me:
+    get:
+      tags: [Employees]
+      summary: The caller's own employee profile
+      description: |
+        A separate path from `/v1/employees/{id}` rather than making the client substitute its own
+        id: the app opens this on launch, before it necessarily knows the employee id.
+
+        Returns `404 NO_EMPLOYEE_RECORD` for a user account that is not linked to an employee —
+        a platform operator or an integration credential.
+      operationId: getOwnEmployeeProfile
+      responses:
+        '200':
+          description: Profile, filtered to the fields the caller may see
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeProfile'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/employees/{id}:
+    get:
+      tags: [Employees]
+      summary: An employee profile
+      description: |
+        Two independent checks decide what comes back.
+
+        **Whether you see the record at all.** Your own record always; anyone's with
+        `employee.view.all` or `employee.manage`; your reporting line — at any depth — with
+        `employee.view`. Otherwise `404`, deliberately not `403`: a `403` confirms the record
+        exists, which turns this endpoint into an oracle for enumerating employee ids.
+
+        **Which of its fields.** Applied server-side. A field you may not see is **absent from the
+        payload**, not null — a null would tell you the field exists and you are not allowed it,
+        and would have clients rendering disabled inputs for values they should not know about.
+        A masked field arrives redacted, and the true value never leaves the server.
+
+        Sensitive fields — date of birth, home address, personal email, salary grade — are hidden
+        by default and require an explicit grant, **including** for callers who hold
+        `employee.manage`. Maintaining records and handling identity documents are separable
+        duties. Your own sensitive fields are always readable to you.
+      operationId: getEmployeeProfile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Profile, filtered to the fields the caller may see
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeProfile'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Employees]
+      summary: Update an employee profile
+      description: |
+        PATCH rather than PUT because the caller may not be able to read every field. A PUT means
+        "here is the whole record", which someone who cannot see the sensitive half is not in a
+        position to send — they would have to echo back fields they never received, and the ones
+        they omitted would be cleared.
+
+        A field the caller may not write is rejected with `403 FIELD_NOT_WRITABLE`, never silently
+        dropped: a save that appears to succeed and quietly discards a change is worse than a
+        refusal. Nothing is applied unless everything validates.
+
+        Writing is never the default. Without `employee.manage` you may change only your own
+        contact details, preferred name and photo — not your name, date of birth or join date,
+        which appear on statutory filings and change by request with evidence.
+
+        Send `If-Match` with the `version` you last read to avoid overwriting a concurrent edit.
+      operationId: updateEmployeeProfile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: |
+            The `version` from the profile you loaded, as a weak ETag. Omitted, the update is
+            last-write-wins — two HR officers editing the same profile is common enough that
+            omitting it loses one of them silently.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeUpdate'
+      responses:
+        '200':
+          description: The updated profile, filtered as on read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /v1/employees/{id}/form:
+    get:
+      tags: [Employees]
+      summary: The edit form for one employee, with permissions applied
+      description: |
+        The same schema as `/v1/forms/employee`, narrowed to this caller and this record: fields
+        they may not see are absent, and fields they may see but not change arrive with
+        `editable: false`.
+
+        Built from the same permission context as the payload and the update path, so what the
+        client is offered and what the server will accept cannot drift apart. Deriving the form
+        separately is how you end up with an input that saves nothing.
+      operationId: getEmployeeEditForm
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Form schema for this caller and record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormSchema'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/me:
+    get:
+      tags: [Me]
+      summary: The authenticated user's identity, permissions and enabled modules
+      description: |
+        Called on every cold start. Drives the navigation shell, so it returns enabled modules and
+        effective permissions together — the client should never have to assemble that from
+        several calls before it can render.
+      operationId: getMe
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token from `/v1/auth/token`. Lifetime 15 minutes.
+
+  parameters:
+    TenantCode:
+      name: X-Tenant-Code
+      in: header
+      required: true
+      description: Organisation code. Required on unauthenticated endpoints, where no token exists yet.
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$'
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Client-generated key (UUIDv7) making the request safe to retry. Required on endpoints the
+        offline outbox replays. Reusing a key with a different payload is rejected rather than
+        silently returning the earlier result.
+      schema:
+        type: string
+        maxLength: 128
+
+  responses:
+    Unauthorized:
+      description: Authentication required or token invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    Forbidden:
+      description: Authenticated but not permitted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    BadRequest:
+      description: Malformed request, or a field value that could not be interpreted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    Conflict:
+      description: |
+        The record changed since the caller loaded it. `details` carries `expected` and `actual`
+        versions so the client can offer a meaningful choice rather than "please try again".
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    UnprocessableEntity:
+      description: |
+        Syntactically valid but rejected by a domain rule. `details.violations` lists **every**
+        problem, not just the first — reporting one at a time turns filling a form into a guessing
+        game.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+
+  schemas:
+    ApiErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ApiError'
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable identifier. Clients localise from this.
+          examples: [LEAVE_BALANCE_INSUFFICIENT]
+        message:
+          type: string
+          description: Developer-facing English description. Not for display to end users.
+        field:
+          type: string
+          description: Input field the error is attributable to.
+        details:
+          type: object
+          additionalProperties: true
+          description: Structured context for building a localised message.
+          examples: [{ available: 2.5, requested: 5 }]
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldViolation'
+        requestId:
+          type: string
+          description: Correlates with server logs. Quote this to support.
+
+    FieldViolation:
+      type: object
+      required: [field, code, message]
+      properties:
+        field: { type: string }
+        code: { type: string }
+        message: { type: string }
+        rejectedValue: {}
+
+    ResolveTenantRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        orgCode:
+          type: string
+      description: Supply exactly one of `email` or `orgCode`.
+
+    ResolveTenantResponse:
+      type: object
+      required: [code, name, authMethods]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        logoUrl: { type: string, format: uri }
+        brandColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        locale: { type: string }
+        authMethods:
+          type: array
+          description: Which sign-in methods this organisation offers, so the client renders the right form.
+          items:
+            type: string
+            enum: [PASSWORD, SSO_SAML, SSO_OIDC]
+        ssoRedirectUrl: { type: string, format: uri }
+
+    PasswordGrantRequest:
+      type: object
+      required: [username, password, device]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+        device:
+          $ref: '#/components/schemas/DeviceInfo'
+
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+
+    BiometricGrantRequest:
+      type: object
+      required: [sealedRefreshToken, deviceId]
+      properties:
+        sealedRefreshToken:
+          type: string
+          description: Refresh token released from device secure hardware after a successful biometric assertion.
+        deviceId:
+          type: string
+          description: Must match the device the token was bound to at enrolment.
+
+    TokenResponse:
+      type: object
+      required: [accessToken, refreshToken, tokenType, expiresIn]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        tokenType: { type: string, enum: [Bearer] }
+        expiresIn: { type: integer, description: Access token lifetime in seconds. }
+        refreshExpiresIn: { type: integer }
+        biometricEnrolmentOffered:
+          type: boolean
+          description: |
+            True when this device has not yet enrolled biometrics. The client should offer
+            enrolment immediately after first sign-in — deferring it is why users end up typing
+            passwords forever.
+
+    DeviceInfo:
+      type: object
+      required: [deviceId, platform]
+      properties:
+        deviceId: { type: string, maxLength: 128 }
+        platform: { type: string, enum: [ANDROID, IOS, WEB, KIOSK] }
+        model: { type: string }
+        osVersion: { type: string }
+        appVersion: { type: string }
+        pushToken: { type: string }
+
+    RegisterDeviceRequest:
+      allOf:
+        - $ref: '#/components/schemas/DeviceInfo'
+        - type: object
+          properties:
+            attestation:
+              type: string
+              description: Play Integrity or App Attest token, verified server-side.
+
+    Device:
+      type: object
+      required: [id, deviceId, platform, trusted]
+      properties:
+        id: { type: string, format: uuid }
+        deviceId: { type: string }
+        platform: { type: string, enum: [ANDROID, IOS, WEB, KIOSK] }
+        model: { type: string }
+        osVersion: { type: string }
+        appVersion: { type: string }
+        biometricEnrolled: { type: boolean }
+        attestationVerified: { type: boolean }
+        trusted: { type: boolean }
+        lastSeenAt: { type: string, format: date-time }
+        current: { type: boolean, description: True for the device making this request. }
+
+    JwkSet:
+      type: object
+      required: [keys]
+      description: A JSON Web Key Set as defined by RFC 7517 §5.
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/Jwk'
+
+    Jwk:
+      type: object
+      required: [kty, kid]
+      description: |
+        A public JSON Web Key (RFC 7517 §4). Only the fields relevant to RSA signature
+        verification are described; additional members may be present and must be ignored rather
+        than rejected, per the RFC.
+      properties:
+        kty: { type: string, description: Key type. Always `RSA`. }
+        kid: { type: string, description: Key identifier, matching the `kid` header of issued tokens. }
+        use: { type: string, description: Public key use. Always `sig`. }
+        alg: { type: string, description: Signing algorithm. Always `RS256`. }
+        n: { type: string, description: RSA modulus, base64url-encoded. }
+        e: { type: string, description: RSA exponent, base64url-encoded. }
+
+    FormSchema:
+      type: object
+      required: [entityType, version, sections]
+      properties:
+        entityType: { type: string }
+        version:
+          type: string
+          description: |
+            A hash of the tenant's field definitions. Cache against it and skip re-rendering when
+            unchanged. Deliberately not a timestamp — two servers must agree for the same
+            configuration, or a client behind a load balancer sees the schema change on every
+            other request.
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/FormSection'
+
+    FormSection:
+      type: object
+      required: [key, label, fields]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FormField'
+
+    FormField:
+      type: object
+      required: [key, label, type]
+      properties:
+        key: { type: string }
+        label:
+          type: string
+          description: Already localised. Falls back through region, then English, then the field key — never blank, because a form with an unlabelled field is unusable.
+        type:
+          type: string
+          enum: [TEXT, MULTILINE_TEXT, NUMBER, DATE, DROPDOWN, MULTI_SELECT, RADIO, CHECKBOX, ATTACHMENT, EMPLOYEE, REFERENCE, EMAIL, PHONE]
+        required: { type: boolean, default: false }
+        editable:
+          type: boolean
+          default: true
+          description: |
+            False when the caller may see the value but not change it. Distinct from omitting the
+            field — a read-only salary grade still belongs on the profile, it simply is not the
+            employee's to edit.
+        helpText: { type: string }
+        validation:
+          $ref: '#/components/schemas/FieldValidation'
+        options:
+          type: array
+          description: For DROPDOWN, MULTI_SELECT and RADIO.
+          items:
+            $ref: '#/components/schemas/FieldOption'
+        referenceTable:
+          type: string
+          description: |
+            For REFERENCE fields: which taxonomy supplies the options, e.g. `nationality`. The
+            client already caches these, so the schema names the taxonomy rather than inlining
+            several hundred options.
+        custom:
+          type: boolean
+          default: false
+          description: True for tenant-defined fields. Clients need not care; support does.
+
+    FieldValidation:
+      type: object
+      description: |
+        Client-side rules, for immediate feedback only. The server re-validates everything —
+        anything arriving at the API may have come from a modified app, a replayed request or a
+        bulk import.
+      properties:
+        minLength: { type: integer }
+        maxLength: { type: integer }
+        min: { type: number }
+        max: { type: number }
+        pattern:
+          type: string
+          description: Applied in the client's own regex engine. A malformed pattern is ignored rather than rejecting the user's input — they cannot fix a pattern they cannot see.
+        patternMessage: { type: string }
+
+    FieldOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string }
+        label: { type: string }
+
+    DirectoryPage:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectoryEntry'
+        nextCursor:
+          type: string
+          description: Pass as `cursor` on the next call. Absent when there are no more results.
+        hasMore:
+          type: boolean
+
+    DirectoryEntry:
+      type: object
+      required: [id, employeeCode, displayName]
+      description: |
+        A colleague, as visible to any authenticated employee.
+
+        Deliberately narrow. Salary, bank details, identity documents, date of birth and home
+        address are absent — and absent from the *query*, not filtered afterwards. A serialisation
+        filter someone forgets to apply leaks; a column that was never selected cannot.
+      properties:
+        id: { type: string, format: uuid }
+        employeeCode: { type: string }
+        displayName:
+          type: string
+          description: |
+            Stored rather than derived from first and last name. Naming order differs by market,
+            and several target countries use a mononym or patronymic that does not reconstruct
+            from a first/last pair.
+        preferredName: { type: string }
+        designation: { type: string }
+        department: { type: string }
+        location: { type: string }
+        workEmail: { type: string, format: email }
+        mobile: { type: string }
+        workPhone: { type: string }
+        photoKey:
+          type: string
+          description: Object storage key. Exchange for a short-lived signed URL to display.
+        supervisorId:
+          type: string
+          format: uuid
+          description: The solid reporting line. Approval routing follows this and only this.
+
+    EmployeeProfile:
+      type: object
+      required: [id, version]
+      description: |
+        A full employee record, **filtered to what the caller may see**.
+
+        Only `id` and `version` are guaranteed present. Every other property is absent when the
+        caller lacks access to it — absent, not null, because a null would confirm the field
+        exists and they are not allowed it, and would have clients rendering disabled inputs for
+        values they should not know about. Clients must therefore treat every field as optional
+        and render from what arrived, never from a fixed list.
+
+        A masked field is present as a redacted string (`••••4567`). The true value never leaves
+        the server, so it is not in the HTTP cache, the client database, or any log capturing
+        payloads.
+
+        `customFields` holds tenant-defined values, permission-checked individually under their
+        own keys and described by `/v1/employees/{id}/form`. The container is omitted entirely
+        when nothing in it is visible.
+      properties:
+        id: { type: string, format: uuid }
+        version:
+          type: integer
+          format: int64
+          description: Send back as `If-Match` on update to detect a concurrent edit.
+        employeeCode: { type: string }
+        status:
+          type: string
+          enum: [PENDING_JOIN, PROBATION, ACTIVE, SUSPENDED, ON_NOTICE, EXITED]
+          description: Read-only here. Changing it is the joiner/leaver process, which has its own approvals and side effects.
+        displayName: { type: string }
+        firstName: { type: string }
+        middleName: { type: string }
+        lastName: { type: string }
+        preferredName: { type: string }
+        photoKey: { type: string }
+        titleId: { type: string, format: uuid }
+        dateOfBirth: { type: string, format: date }
+        genderTypeId: { type: string, format: uuid }
+        maritalStatusId: { type: string, format: uuid }
+        bloodGroupId: { type: string, format: uuid }
+        nationalityId: { type: string, format: uuid }
+        religionId: { type: string, format: uuid }
+        raceId: { type: string, format: uuid }
+        workEmail: { type: string }
+        personalEmail: { type: string }
+        mobile: { type: string }
+        workPhone: { type: string }
+        permanentAddress: { $ref: '#/components/schemas/Address' }
+        currentAddress: { $ref: '#/components/schemas/Address' }
+        companyId: { type: string, format: uuid }
+        joinDate: { type: string, format: date }
+        confirmationDate: { type: string, format: date }
+        probationEndDate: { type: string, format: date }
+        resignDate: { type: string, format: date }
+        lastWorkingDate: { type: string, format: date }
+        employmentTypeId: { type: string, format: uuid }
+        employeeCategoryId: { type: string, format: uuid }
+        employeeGroupId: { type: string, format: uuid }
+        statutoryClassificationId: { type: string, format: uuid }
+        departmentId: { type: string, format: uuid }
+        designationId: { type: string, format: uuid }
+        salaryGradeId: { type: string, format: uuid }
+        corporateTitleId: { type: string, format: uuid }
+        locationId: { type: string, format: uuid }
+        costCentreId: { type: string, format: uuid }
+        functionId: { type: string, format: uuid }
+        supervisorId:
+          type: string
+          format: uuid
+          description: The solid reporting line. Approval routing follows this and only this.
+        dottedLineSupervisorId:
+          type: string
+          format: uuid
+          description: Matrix reporting. Informational — never used for approval routing.
+        yearsOfService:
+          type: integer
+          description: |
+            Completed years as at today, stopping at `lastWorkingDate` for a leaver. Drives
+            service-based leave slabs and gratuity, both of which are money — hence a server-side
+            value rather than something each client computes from `joinDate`.
+        customFields:
+          type: object
+          additionalProperties: true
+          description: Tenant-defined values, keyed by field key. Omitted when none are visible.
+
+    EmployeeUpdate:
+      type: object
+      description: |
+        A partial update. Only the properties present are changed; absent ones are untouched.
+
+        To clear a field, name it in `clearFields`. Sending an explicit `null` also works and
+        means the same thing, but generated typed clients cannot express it: kotlinx and Swift
+        both encode "unset" and "deliberately null" identically, so the encoder must omit nulls
+        or every partial update would carry one for each field the caller did not touch.
+        `clearFields` is the spelling that survives code generation.
+
+        An empty string also clears a text field — storing `""` would make "not set" and "set to
+        nothing" two distinct states that every query downstream then has to handle.
+
+        `status`, `resignDate` and `lastWorkingDate` are absent by design. They are outcomes of
+        the joiner/leaver processes, which carry approvals and side effects — payroll cut-off,
+        access revocation, final settlement. A profile update that could set `status: EXITED`
+        would skip all of it and leave someone paid but locked out, or the reverse.
+      properties:
+        clearFields:
+          type: array
+          description: |
+            Field keys to set to null. Subject to the same write permissions as setting a value —
+            clearing someone's department is a change like any other.
+
+            A key that also appears with a value in the same request is rejected rather than
+            resolved by precedence: the two instructions contradict each other, and guessing which
+            the caller meant is how a save silently does the opposite of what was intended.
+          items: { type: string }
+        employeeCode: { type: string, maxLength: 64 }
+        firstName: { type: string, maxLength: 128 }
+        middleName: { type: [string, "null"], maxLength: 128 }
+        lastName: { type: string, maxLength: 128 }
+        displayName: { type: string, maxLength: 255 }
+        preferredName: { type: [string, "null"], maxLength: 128 }
+        photoKey: { type: [string, "null"], maxLength: 512 }
+        titleId: { type: [string, "null"], format: uuid }
+        dateOfBirth: { type: [string, "null"], format: date }
+        genderTypeId: { type: [string, "null"], format: uuid }
+        maritalStatusId: { type: [string, "null"], format: uuid }
+        bloodGroupId: { type: [string, "null"], format: uuid }
+        nationalityId: { type: [string, "null"], format: uuid }
+        religionId: { type: [string, "null"], format: uuid }
+        raceId: { type: [string, "null"], format: uuid }
+        workEmail: { type: [string, "null"], maxLength: 320 }
+        personalEmail: { type: [string, "null"], maxLength: 320 }
+        mobile: { type: [string, "null"], maxLength: 32 }
+        workPhone: { type: [string, "null"], maxLength: 32 }
+        permanentAddress: { $ref: '#/components/schemas/Address' }
+        currentAddress: { $ref: '#/components/schemas/Address' }
+        companyId: { type: string, format: uuid }
+        joinDate: { type: string, format: date }
+        confirmationDate: { type: [string, "null"], format: date }
+        probationEndDate: { type: [string, "null"], format: date }
+        employmentTypeId: { type: [string, "null"], format: uuid }
+        employeeCategoryId: { type: [string, "null"], format: uuid }
+        employeeGroupId: { type: [string, "null"], format: uuid }
+        statutoryClassificationId: { type: [string, "null"], format: uuid }
+        departmentId: { type: [string, "null"], format: uuid }
+        designationId: { type: [string, "null"], format: uuid }
+        salaryGradeId: { type: [string, "null"], format: uuid }
+        corporateTitleId: { type: [string, "null"], format: uuid }
+        locationId: { type: [string, "null"], format: uuid }
+        costCentreId: { type: [string, "null"], format: uuid }
+        functionId: { type: [string, "null"], format: uuid }
+        supervisorId: { type: [string, "null"], format: uuid }
+        dottedLineSupervisorId: { type: [string, "null"], format: uuid }
+        customFields:
+          type: object
+          additionalProperties: true
+          description: |
+            Tenant-defined values. A `null` removes the value. Every key is checked against the
+            active definitions — an unknown key is rejected rather than ignored, because silently
+            dropping something the user typed is worse than refusing it.
+
+    Address:
+      type: object
+      description: |
+        Free-form because address structure is not universal. A schema with `street`, `city`,
+        `state`, `zip` is a US postal address wearing a generic name, and it does not survive
+        contact with a Sri Lankan or Japanese address. The keys a tenant uses come from their
+        configured address format.
+      additionalProperties: true
+
+    ReferenceItem:
+      type: object
+      required: [id, code, name, sequence, active]
+      description: A row in a configurable lookup list — blood group, marital status, and so on.
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        sequence:
+          type: integer
+          description: Display order. Lower first.
+        active:
+          type: boolean
+          description: Inactive items are retained so historical records still resolve, but are not offered for new entry.
+
+    MeResponse:
+      type: object
+      required: [userId, username, tenant, roles, permissions, enabledModules]
+      properties:
+        userId: { type: string, format: uuid }
+        employeeId: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        email: { type: string, format: email }
+        photoUrl: { type: string, format: uri }
+        locale: { type: string }
+        timezone: { type: string }
+        tenant:
+          $ref: '#/components/schemas/TenantSummary'
+        roles:
+          type: array
+          items: { type: string }
+          description: Role keys held by the user, e.g. `ADMIN`, `HR_ADMIN`.
+        permissions:
+          type: array
+          items: { type: string }
+          description: Effective permission keys. The UI hides what the caller cannot do; the API enforces it regardless.
+        enabledModules:
+          type: array
+          items: { type: string }
+        mustChangePassword: { type: boolean }
+        mfaEnabled: { type: boolean }
+
+    TenantSummary:
+      type: object
+      required: [id, code, name]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        logoUrl: { type: string, format: uri }
+        brandColor: { type: string }
+        defaultCurrency: { type: string }
+        timezone: { type: string }

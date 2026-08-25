@@ -1,0 +1,125 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'infra/**'
+      - 'spec/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        required: true
+        type: choice
+        options: [staging, prod]
+
+concurrency:
+  # Never two deploys to the same environment at once. `cancel-in-progress` is
+  # deliberately false: cancelling mid-`terraform apply` leaves state locked and
+  # infrastructure half-changed, which is far worse than waiting.
+  group: deploy-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+permissions:
+  # OIDC federation to AWS — no long-lived access keys anywhere in this repo or
+  # in GitHub secrets. A leaked workflow log cannot yield a usable credential.
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: hr-backend
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build once, deploy that exact artefact. Rebuilding per environment would
+  # mean staging and production run different bytes, which defeats the point of
+  # having a staging environment.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Record digest
+        run: |
+          echo "image=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
+          echo "digest=${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      # Blocks the deploy rather than merely reporting. A HIGH CVE in an image
+      # about to hold payroll data is not a notification.
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.push.outputs.digest }}
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+  # ---------------------------------------------------------------------------
+  # Staging deploys automatically on merge to main.
+  # ---------------------------------------------------------------------------
+  staging:
+    name: Deploy to staging
+    needs: build
+    if: github.event_name == 'push' || inputs.environment == 'staging'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: staging
+      image: ${{ needs.build.outputs.image }}
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Production is manual and gated.
+  #
+  # Not because automation is untrustworthy, but because the deploy decision
+  # for payroll data belongs to a person who knows what is happening that day —
+  # a release the afternoon before a payroll run is a different risk from the
+  # same release the day after.
+  #
+  # `needs: staging` on a push means production can only ever run code that has
+  # been through staging first.
+  # ---------------------------------------------------------------------------
+  prod:
+    name: Deploy to production
+    needs: [build, staging]
+    if: inputs.environment == 'prod'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: prod
+      image: ${{ needs.build.outputs.image }}
+    secrets: inherit

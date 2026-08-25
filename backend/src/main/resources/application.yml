@@ -1,0 +1,104 @@
+spring:
+  application:
+    name: hr-backend
+
+  threads:
+    virtual:
+      # Java 21 virtual threads. An HR API is overwhelmingly I/O-bound (database, S3, push
+      # providers), so unbounded lightweight threads suit it far better than a bounded pool.
+      enabled: true
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/hr}
+    username: ${DB_USER:hr_app_login}
+    password: ${DB_PASSWORD:hr_app_login}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN:5}
+      connection-timeout: 10000
+      max-lifetime: 1800000
+      pool-name: hr-pool
+
+  flyway:
+    enabled: true
+    # Migrations run as the schema owner, which is NOT the role the application uses at runtime.
+    # That separation is what makes row-level security meaningful: see V1__platform_tenancy.sql.
+    url: ${FLYWAY_URL:${DB_URL:jdbc:postgresql://localhost:5432/hr}}
+    user: ${FLYWAY_USER:hr_owner}
+    password: ${FLYWAY_PASSWORD:hr_owner}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+          time_zone: UTC
+        order_inserts: true
+        order_updates: true
+        query:
+          fail_on_pagination_over_collection_fetch: true
+          in_clause_parameter_padding: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Phase 0 uses a locally generated RSA keypair exposed via our own JWK set.
+          jwk-set-uri: ${JWK_SET_URI:http://localhost:8080/v1/auth/.well-known/jwks.json}
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    whitelabel:
+      enabled: false
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,modulith
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+logging:
+  pattern:
+    # requestId and tenant come from the MDC set by TenantFilter — every log line is traceable
+    # to a request and a customer without hunting.
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%X{tenant:-—}] [%X{requestId:-—}] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    com.hr: ${LOG_LEVEL:INFO}
+
+hr:
+  auth:
+    access-token-ttl: PT15M
+    refresh-token-ttl: P30D
+    # After this long without use, biometric unlock stops working and a password is required
+    # again. Matches the refresh token lifetime by design.
+    biometric-reauth-after: P30D
+    step-up-validity: PT5M

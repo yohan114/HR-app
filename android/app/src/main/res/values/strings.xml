@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HR</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_time">Time</string>
+    <string name="nav_approvals">Approvals</string>
+    <string name="nav_people">People</string>
+    <string name="nav_me">Me</string>
+
+    <string name="placeholder_phase_one">Screens arrive in Phase 1</string>
+
+    <!--
+      Sync and offline states.
+
+      These matter more than they look: a user must never believe something was submitted when it
+      is still queued. See the state machine in docs/sync-protocol.md §6.
+    -->
+    <string name="sync_queued">Queued · will sync</string>
+    <string name="sync_syncing">Syncing…</string>
+    <string name="sync_offline">Offline · changes are saved on this device</string>
+    <string name="sync_rejected">Not accepted — tap to review</string>
+    <string name="sync_failed">Could not send. Tap to retry.</string>
+
+    <!-- Authentication -->
+    <string name="auth_biometric_title">Unlock HR</string>
+    <string name="auth_biometric_subtitle">Use your fingerprint or face to sign in</string>
+    <string name="auth_biometric_negative">Use password</string>
+    <string name="auth_biometric_enrol_title">Skip the password next time</string>
+    <string name="auth_biometric_enrol_body">Your sign-in is stored in this device\'s secure hardware and released only by your fingerprint or face. It never leaves the device.</string>
+    <string name="auth_biometric_reenrolled">Your device\'s biometrics changed, so you\'ll need your password once more.</string>
+</resources>

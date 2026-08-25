@@ -1,0 +1,45 @@
+# external-dns
+#
+# Keeps Route 53 in step with Ingress resources. AWS access comes from an IRSA
+# role, so no credential appears here.
+
+provider:
+  name: aws
+
+sources:
+  - ingress
+
+# `sync` rather than `upsert-only`: a deleted Ingress should remove its record.
+# upsert-only leaves records pointing at load balancers that no longer exist,
+# which is both untidy and a subdomain-takeover risk.
+policy: sync
+
+# A TXT record marks which records external-dns owns, so it will never modify
+# one created by hand. Without it, a manually-managed record can be silently
+# overwritten.
+registry: txt
+txtOwnerId: hr-platform
+
+# Populate per cluster, e.g. ["hrapp.io"]. An empty filter means external-dns
+# manages every hosted zone its role can reach — set this before installing.
+domainFilters: []
+
+serviceAccount:
+  create: true
+  name: external-dns
+  # eks.amazonaws.com/role-arn added per environment.
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+securityContext:
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]

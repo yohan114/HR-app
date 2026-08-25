@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hr-backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          # Staging runs smaller than production. Deliberately not *much*
+          # smaller: a staging environment that cannot reproduce a production
+          # performance problem is not much of a staging environment.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              memory: 768Mi

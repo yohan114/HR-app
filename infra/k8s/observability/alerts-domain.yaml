@@ -1,0 +1,200 @@
+# Domain alerts.
+#
+# These are the ones that matter most and that a generic monitoring setup would
+# never produce, because they encode what this product does rather than what a
+# JVM does.
+#
+# The distinction worth holding onto: an infrastructure alert says a component
+# is unhealthy. A domain alert says *people are about to be affected* — someone
+# will not be paid, an attendance punch will be lost, a manager will not see a
+# request. Those are the pages that justify waking someone.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hr-backend-domain
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: hr-platform
+    prometheus: platform
+spec:
+  groups:
+    # -----------------------------------------------------------------------
+    # Payroll
+    #
+    # The highest-consequence process in the product. A wrong or missed payroll
+    # run is not an outage — it is people not being paid, which is a legal
+    # problem in every market we target.
+    # -----------------------------------------------------------------------
+    - name: hr.payroll
+      interval: 60s
+      rules:
+        - alert: PayrollRunFailed
+          expr: |
+            increase(hr_payroll_run_total{result="failed"}[15m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "Payroll run failed for tenant {{ $labels.tenant }}"
+            description: >-
+              A run entered a terminal failure. Runs are resumable by phase, so
+              establish which phase failed before restarting — a failure in COMMIT
+              needs different handling from one in CALCULATE.
+            runbook: https://runbooks.hrapp.io/payroll-run-failed
+
+        - alert: PayrollRunStuck
+          expr: |
+            hr_payroll_run_duration_seconds{phase!="COMMITTED"} > 3600
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Payroll run for {{ $labels.tenant }} stuck in {{ $labels.phase }} for over an hour"
+            description: >-
+              The budget is ten minutes for 10,000 employees. An hour means it is
+              wedged, most likely on the Redis distributed lock or a database lock.
+              Check whether the lock holder is still alive before clearing anything —
+              clearing a live lock is how you get two concurrent runs.
+            runbook: https://runbooks.hrapp.io/payroll-stuck
+
+        - alert: PayrollAnomalyRateHigh
+          expr: |
+            (
+              sum by (tenant) (hr_payroll_anomalies_total)
+              /
+              sum by (tenant) (hr_payroll_results_total)
+            ) > 0.1
+          labels:
+            severity: warning
+          annotations:
+            summary: "Over 10% of payroll results flagged as anomalous for {{ $labels.tenant }}"
+            description: >-
+              Anomaly detection compares against the prior period. A high rate usually
+              means something legitimate and large happened — an annual increment, a
+              restructure — or that a pay item formula changed. Either way it needs a
+              human to confirm before the run is approved.
+            runbook: https://runbooks.hrapp.io/payroll-anomalies
+
+        # Reproducibility is a compliance property, not just an engineering one.
+        # If a committed run cannot be reproduced from its snapshot, we cannot
+        # answer "why was I paid this?" months later.
+        - alert: PayrollSnapshotMissing
+          expr: |
+            increase(hr_payroll_snapshot_missing_total[1h]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "A payroll run committed without a retrievable input snapshot"
+            description: >-
+              That run is no longer reproducible. Check S3 for the object and the
+              bucket's object-lock configuration. Do not close the period until
+              resolved.
+            runbook: https://runbooks.hrapp.io/snapshot-missing
+
+    # -----------------------------------------------------------------------
+    # Attendance and sync
+    #
+    # A lost punch surfaces weeks later as a payroll dispute, by which time the
+    # evidence is gone. These alerts exist to catch it while it is still fixable.
+    # -----------------------------------------------------------------------
+    - name: hr.attendance
+      interval: 60s
+      rules:
+        - alert: AttendanceProcessorLagging
+          expr: |
+            hr_attendance_unprocessed_punches > 10000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value | humanize }} punches awaiting processing"
+            description: >-
+              daily_attendance is derived state and always recomputable, so nothing is
+              lost — but until it catches up, employees see stale attendance and
+              managers see an incomplete team board.
+            runbook: https://runbooks.hrapp.io/attendance-lag
+
+        - alert: PunchIngestionStopped
+          expr: |
+            sum(rate(hr_attendance_punch_total[15m])) == 0
+            and hour() >= 1 and hour() <= 12
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No attendance punches received in 30 minutes during working hours"
+            description: >-
+              Between 09:00 and 20:00 Singapore time there should always be punches
+              arriving from somewhere. Silence means ingestion is broken — clients are
+              queueing locally and will deliver eventually, but a device-based feed
+              may be losing data outright.
+            runbook: https://runbooks.hrapp.io/punch-ingestion-stopped
+
+        # The outbox retries for seven days before giving up. An entry reaching
+        # FAILED means a user's action was permanently lost — they were told it
+        # was queued and it never arrived.
+        - alert: OutboxEntriesFailed
+          expr: |
+            increase(hr_outbox_failed_total[1h]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $value | humanize }} client mutations exhausted their retry deadline"
+            description: >-
+              These were accepted locally, shown to the user as queued, and never
+              reached the server. Identify the affected users and tenants — they need
+              telling, and the payload is retained so the action can be resubmitted.
+            runbook: https://runbooks.hrapp.io/outbox-failed
+
+        - alert: SyncCursorExpiryRateHigh
+          expr: |
+            sum(rate(hr_sync_cursor_expired_total[1h])) * 3600 > 50
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value | humanize }} clients per hour forced into a full resync"
+            description: >-
+              Expected for devices offline longer than the 90-day change-feed
+              retention. A spike suggests the feed is being pruned too aggressively,
+              or clients are failing to persist their cursor — the second is a client
+              bug that will also be burning bandwidth.
+            runbook: https://runbooks.hrapp.io/cursor-expiry
+
+    # -----------------------------------------------------------------------
+    # Workflow
+    # -----------------------------------------------------------------------
+    - name: hr.workflow
+      interval: 300s
+      rules:
+        - alert: WorkflowTasksBreachingSLA
+          expr: |
+            sum by (tenant, workflow_type) (hr_workflow_tasks_overdue) > 20
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value | humanize }} overdue {{ $labels.workflow_type }} approvals for {{ $labels.tenant }}"
+            description: >-
+              Either escalation is not firing, or approvers are not receiving
+              notifications. Check notification delivery for that tenant before
+              assuming it is a people problem — a broken push token looks exactly
+              like an inattentive manager.
+            runbook: https://runbooks.hrapp.io/workflow-sla
+
+        - alert: NotificationDeliveryFailing
+          expr: |
+            (
+              sum(rate(hr_notification_delivery_total{status="failed"}[15m]))
+              /
+              sum(rate(hr_notification_delivery_total[15m]))
+            ) > 0.2
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Over 20% of notifications are failing to deliver"
+            description: >-
+              Usually an expired FCM or APNs credential, or a provider incident.
+              Approvals silently stop reaching people, which presents as a workflow
+              problem rather than an infrastructure one.
+            runbook: https://runbooks.hrapp.io/notification-delivery
