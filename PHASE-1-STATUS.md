@@ -390,6 +390,80 @@ at somebody's first startup. Verified by injecting one.
 
 ---
 
+## iOS: HTTP layer and background scheduling
+
+The largest gap in the phase. `ios/` had a sync engine, an outbox and a secure token store — and
+no way to make a network request, and nothing that ever called any of it. Every "the app refreshes
+on foreground / after a drain / every 15 minutes" claim in the design docs was true on Android and
+aspirational on iOS.
+
+Added, mirroring the Android layer rather than sharing code with it (ADR 0004):
+
+| File | Role |
+|---|---|
+| `Network/APIConfiguration.swift` | Base URL and tenant code |
+| `Network/APIError.swift` | The error envelope, classified by what the caller can do |
+| `Network/TokenProvider.swift` | Session state and **single-flight** refresh |
+| `Network/HTTPClient.swift` | URLSession, bearer injection, one retry on 401 |
+| `Sync/OutboxHTTPSender.swift` | Status → outcome mapping, identical to Android's |
+| `Sync/OutboxDrain.swift` | The drain and sync runs, as plain async functions |
+| `Sync/SyncScheduler.swift` | `BGTaskScheduler` registration and foreground triggers |
+
+**The single-flight refresh is a correctness requirement, not an optimisation.** The server rotates
+refresh tokens and treats reuse as theft, revoking the whole family (`AuthenticationService`,
+RFC 9700 §4.14.2). So the obvious client — refresh whenever you get a 401 — destroys itself: five
+requests in flight when the token expires means five refreshes, one succeeds, four present a token
+the server has just marked used, and the server correctly concludes the token was stolen. The user
+is signed out of every device because a screen loaded five widgets. Nothing in the server is wrong.
+`TokenProvider` is an actor holding one optional `Task`; concurrent callers await the same one.
+Seven tests cover it, including ten simultaneous callers producing exactly one refresh.
+
+**Two limitations, stated rather than worked around:**
+
+- **Background work cannot authenticate after a cold launch.** The refresh token is sealed behind
+  Face ID and there is no UI to prompt in, so a background task with no in-memory session returns
+  `unauthenticated` and defers to the next foreground. The alternative — storing the refresh token
+  unprotected so background tasks can use it — discards the entire point of sealing it.
+- **`BGTaskScheduler` guarantees nothing.** Windows depend on how often the user opens the app,
+  battery state and Low Power Mode; a force-quit app gets none at all. That is not a problem to
+  design around, it is the reason the app is offline-first (ADR 0003).
+
+### Two real bugs caught without a compiler
+
+**`OutboxEntry` has both `id` and `idempotencyKey`, and I used `id`.** Still a stable key, so it
+would have looked correct in isolation — but a *different* key from Android's, so the same logical
+retry would read as a new request. Retry safety is a property of the protocol, not of each client
+separately.
+
+**A protocol nested inside an actor.** Swift forbids it, unlike every other declaration kind. Moved
+to file scope.
+
+Also caught: `await tokens?.accessToken()` on a method already returning `String?` yields `String??`,
+so a single `guard let` would unwrap only the outer layer and send an unauthenticated request.
+
+### Verification, and its limits
+
+There is no Swift toolchain on this machine — no `swift`, `swiftc` or `xcodebuild`. **None of this
+has been compiled.** `ios/scripts/swift-sanity.mjs` is what exists instead: balanced delimiters,
+nested-protocol detection, tab characters. It is not a compiler and does not pretend to be; it
+catches the class of error that would otherwise cost a teammate on a Mac an hour on code they did
+not write.
+
+Its first run reported three *correct* files, because `\s` matches newlines and a blank line before
+a file-scope protocol read as indentation. Caught only because those files predated the rule — which
+is the argument for pointing a new checker at known-good code before trusting it. Both rules are now
+verified against injected faults.
+
+The real fix is `.github/workflows/ios.yml`, which did not exist: iOS had no CI at all. It now runs
+the sanity check on Linux and `swift build`/`swift test` plus an iOS-Simulator build on `macos-14`.
+That last step matters because `BGTaskScheduler` is behind `#if os(iOS)`, so a macOS-only build
+would leave the branch that actually runs in production unchecked.
+
+**Expect the first CI run to fail.** It will be the first time any Swift in this repository has been
+compiled.
+
+---
+
 ## What the home-composite design research turned up
 
 Three independent designs for `GET /v1/mobile/home` were produced from different angles
@@ -431,7 +505,9 @@ Reordered from the previous plan, for the reasons above.
 | Order | Task | Why here |
 |---|---|---|
 | ~~1~~ | ~~Seed real demo data~~ | **Done** — see below. |
-| 2 | **P1-IOS** HTTP layer + scheduler | The largest single gap in the phase. Until it exists, "native on both platforms" is one platform, and every endpoint is validated against one client. |
+| ~~2~~ | ~~**P1-IOS** HTTP layer + scheduler~~ | **Written, not compiled** — see below. |
+| 2b | Get the iOS package **compiled** | `.github/workflows/ios.yml` now builds and tests it on `macos-14`. The first run is the first time any Swift in this repository has been compiled, and it will find things. |
+| 2c | **P1-IOS** remaining: UI shell | The largest single gap in the phase. Until it exists, "native on both platforms" is one platform, and every endpoint is validated against one client. |
 | 3 | **P1-AND-07** nav shell | `NavHost`, `NavController`, and `DeepLinks` actually wired to the launch intent. Nothing on any screen can be tapped until this lands. |
 | 4 | P1-BE-25/26 | The home composite, on the foundations above rather than ahead of them. Design already researched. |
 | 5 | P1-AND/IOS-08…12 | Card framework, directory, profile screens |

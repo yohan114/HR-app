@@ -1,0 +1,70 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ['ios/**', 'clients/swift/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', 'clients/swift/**', '.github/workflows/ios.yml']
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs on Linux and costs seconds. Structural mistakes — an unbalanced brace, a protocol nested
+  # inside a type — fail here with a precise message rather than fifteen minutes later inside a
+  # macOS compiler run, and this job also works for anyone contributing without a Mac.
+  sanity:
+    name: Structural sanity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check Swift sources
+        run: node ios/scripts/swift-sanity.mjs ios
+
+  build:
+    name: Build & test
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The generated Swift client is a local package dependency of HRCore, so it must exist
+      # before resolution. It is committed, but this guards against someone removing it and the
+      # failure surfacing as an inscrutable SPM error.
+      - name: Verify the generated client is present
+        run: test -f clients/swift/Package.swift
+
+      - name: Show toolchain
+        run: swift --version
+
+      # HRCore is deliberately a library with no UI, so it builds and tests with SPM alone — no
+      # simulator, no scheme, no Xcode project. That is the reason for the split in ios/README.md:
+      # the sync engine, outbox and networking are testable without launching an app.
+      - name: Build
+        working-directory: ios
+        run: swift build --build-tests
+
+      - name: Test
+        working-directory: ios
+        run: swift test --skip-build
+
+      # Compiling for the iOS SDK as well as the host. HRCore has platform-conditional code —
+      # BGTaskScheduler exists only on iOS — and building solely for macOS would leave the
+      # `#if canImport(BackgroundTasks) && os(iOS)` branch unchecked, which is precisely the
+      # branch that runs in production.
+      - name: Build for iOS Simulator
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -scheme HRCore \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO

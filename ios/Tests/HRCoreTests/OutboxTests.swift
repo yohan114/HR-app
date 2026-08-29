@@ -15,8 +15,7 @@ final class OutboxTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        database = try DatabaseQueue()
-        try migrate(database)
+        database = try TestDatabase.make()
         let fixedNow = now
         outbox = Outbox(database: database, clock: { fixedNow })
     }
@@ -167,31 +166,4 @@ final class OutboxTests: XCTestCase {
         return entry
     }
 
-    private func migrate(_ queue: DatabaseQueue) throws {
-        try queue.write { db in
-            try db.create(table: "outbox") { t in
-                t.primaryKey("id", .text)
-                t.column("idempotencyKey", .text).notNull().unique()
-                t.column("aggregateType", .text).notNull()
-                t.column("aggregateId", .text).notNull()
-                t.column("httpMethod", .text).notNull()
-                t.column("path", .text).notNull()
-                t.column("payload", .text).notNull()
-                t.column("state", .text).notNull()
-                t.column("attemptCount", .integer).notNull().defaults(to: 0)
-                t.column("createdAt", .datetime).notNull()
-                t.column("lastAttemptAt", .datetime)
-                t.column("nextAttemptAt", .datetime).notNull()
-                t.column("failureCode", .text)
-                t.column("failureMessage", .text)
-            }
-            try db.create(table: "sync_cursor") { t in
-                t.primaryKey("scope", .text)
-                t.column("cursor", .text)
-                t.column("lastSyncedAt", .datetime)
-                t.column("lastAttemptAt", .datetime)
-                t.column("lastError", .text)
-            }
-        }
-    }
 }
