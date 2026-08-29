@@ -3,6 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { LoadingState } from '@/components/ui'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { AppLayout } from '@/routes/AppLayout'
+import { Directory } from '@/routes/Directory'
+import { EmployeeProfile } from '@/routes/EmployeeProfile'
 import { Overview } from '@/routes/Overview'
 import { Placeholder } from '@/routes/Placeholder'
 import { SignIn } from '@/routes/SignIn'
@@ -50,6 +52,14 @@ export function App() {
               }
             >
               <Route index element={<Overview />} />
+              <Route path="directory" element={<Directory />} />
+              {/*
+                No permission guard on the route. Whether this caller may see this record is a
+                per-record question the server answers — it returns 404 for a record they may not
+                open, deliberately not 403, so the endpoint cannot be used to enumerate employee
+                ids. A client-side guard could only duplicate that decision badly.
+              */}
+              <Route path="employees/:id" element={<EmployeeProfile />} />
               <Route
                 path="tenants"
                 element={

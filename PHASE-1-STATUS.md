@@ -464,6 +464,54 @@ compiled.
 
 ---
 
+## The web console can now show a person
+
+Two screens, and the first thing in this phase that can be *seen* working rather than reasoned
+about. The web console is the only client that builds and runs in this environment, so it is where
+the server-driven form schema and the field permissions become demonstrable instead of asserted.
+
+**Directory** (`/directory`) — debounced search, cursor pagination with a back-stack, `aria-live`
+on the results so a screen-reader user is told the table changed under them. Open to every
+authenticated employee, with no permission guard, because the endpoint is safe by virtue of what it
+never selects rather than by who may call it.
+
+**Employee profile** (`/employees/:id`) — **rendered entirely from `GET /v1/employees/{id}/form`.**
+There is no hardcoded field list in the file. The schema decides which sections exist, which fields
+are in them, their order, labels, and which are editable; the page walks it. That is the payoff for
+the form-schema engine: a tenant adds a custom field in the admin console and it appears here with
+no code change.
+
+It also means the page contains **no client-side permission check at all**, deliberately. Fields
+the caller may not see are absent from both the schema and the payload, so "not received" and "do
+not draw" are the same condition. Adding a client-side check would duplicate a decision the server
+has already made, and duplicated authorisation drifts.
+
+Three details worth keeping:
+
+- `editable: false` renders as text, not a disabled input. A disabled input looks like something
+  you could gain permission to use, and a form of them reads as unfilled rather than read-only.
+- An emptied input sends `clearFields`, not `null` — the typed clients must omit nulls, so a null
+  cannot survive code generation (see the `explicitNulls` fix).
+- The save sends `If-Match` with the version it loaded, so a concurrent edit is a 409 rather than a
+  silent overwrite.
+
+### A checker for the failure that survives every other check
+
+Neither `tsc` nor the Vite build catches a class name with no matching CSS rule. It compiles,
+builds, ships, and renders unstyled — a visual-only failure found by a person looking at the
+screen, which is the most expensive way to find it. I had written ten such names before noticing.
+
+`web/scripts/css-class-check.mjs` closes it, and found two **pre-existing** ones on its first run:
+`.page` — used by `Overview.tsx` since it was written — and `.card__actions`. Neither had ever been
+styled. It is deliberately one-directional: unused CSS rules are often intentional, and a checker
+that fires on them gets muted.
+
+Its own first run also produced four false positives, from taking `?` and `:` out of a ternary
+inside `className={…}` as class names. Fixed by requiring a CSS-identifier shape, then verified
+against an injected typo.
+
+---
+
 ## The home screen is decided
 
 [docs/home-composite.md](docs/home-composite.md). Three designs, written independently from

@@ -1,7 +1,11 @@
 import {
   AuthenticationApi,
   Configuration,
+  DirectoryApi,
+  EmployeesApi,
+  FormsApi,
   MeApi,
+  ReferenceApi,
   ResponseError,
   type ApiErrorResponse,
   type Middleware,
@@ -119,6 +123,10 @@ const configuration = new Configuration({
 
 export const authApi = new AuthenticationApi(configuration)
 export const meApi = new MeApi(configuration)
+export const directoryApi = new DirectoryApi(configuration)
+export const employeesApi = new EmployeesApi(configuration)
+export const formsApi = new FormsApi(configuration)
+export const referenceApi = new ReferenceApi(configuration)
 
 /**
  * Extracts the machine-readable code from the standard error envelope.
@@ -131,7 +139,9 @@ export async function extractApiError(
 ): Promise<{ code: string; message: string; requestId?: string } | null> {
   if (!(error instanceof ResponseError)) return null
   try {
-    const body = (await error.response.json()) as ApiErrorResponse
+    // `clone()` because a response body can only be read once, and a caller may reasonably want
+    // both the code and the per-field violations from the same failure.
+    const body = (await error.response.clone().json()) as ApiErrorResponse
     return {
       code: body.error.code,
       message: body.error.message,
@@ -159,6 +169,36 @@ const ERROR_MESSAGES: Record<string, string> = {
   INSUFFICIENT_PERMISSION: 'You do not have permission to do that.',
   RATE_LIMITED: 'Too many attempts. Please wait a moment and try again.',
   VALIDATION_FAILED: 'Some of the details are not valid. Check the highlighted fields.',
+  FIELD_NOT_WRITABLE: 'You do not have permission to change one of those fields.',
+  STALE_VERSION: 'Someone else changed this record while you were editing. Reload to see their changes.',
+  CONTRADICTORY_UPDATE: 'A field was both set and cleared in the same save. Reload and try again.',
+  CUSTOM_FIELD_VALIDATION_FAILED: 'Some of the details are not valid. Check the highlighted fields.',
+  FIELD_VALIDATION_FAILED: 'Some of the details are not valid. Check the highlighted fields.',
+  NOT_FOUND: 'That record does not exist, or you do not have access to it.',
+}
+
+/**
+ * Per-field violations from a rejected save.
+ *
+ * The server reports **every** violation rather than stopping at the first, so the form can mark
+ * all of them at once — fixing one at a time turns filling a form into a guessing game
+ * (`CustomFieldValidator`). Returns an empty map when the error carries no field detail.
+ */
+export async function extractFieldViolations(error: unknown): Promise<Record<string, string>> {
+  if (!(error instanceof ResponseError)) return {}
+  try {
+    const body = (await error.response.clone().json()) as {
+      error?: { details?: { violations?: Array<{ field?: string; message?: string }> } }
+    }
+    const violations = body.error?.details?.violations ?? []
+    return Object.fromEntries(
+      violations
+        .filter((v): v is { field: string; message: string } => Boolean(v.field) && Boolean(v.message))
+        .map((v) => [v.field, v.message]),
+    )
+  } catch {
+    return {}
+  }
 }
 
 export function humaniseError(code: string, requestId?: string): string {

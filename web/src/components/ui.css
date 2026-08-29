@@ -116,3 +116,6 @@
 .badge--success { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
 .badge--warning { background: color-mix(in srgb, var(--color-warning) 18%, transparent); color: var(--color-warning); }
 .badge--danger  { background: color-mix(in srgb, var(--color-danger) 18%, transparent); color: var(--color-danger); }
+
+/* Actions in a card header — sits opposite the title on the same baseline. */
+.card__actions { display: flex; gap: var(--space-2); align-items: center; }

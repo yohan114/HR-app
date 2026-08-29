@@ -36,6 +36,12 @@ jobs:
         working-directory: web
         run: npm run typecheck
 
+      # Neither the type-checker nor the build catches a class name with no matching CSS rule:
+      # it compiles, ships, and renders as an unstyled element. A visual-only failure survives
+      # every other check in this pipeline.
+      - name: Check CSS class usage
+        run: node web/scripts/css-class-check.mjs web/src
+
       - name: Build
         working-directory: web
         run: npm run build

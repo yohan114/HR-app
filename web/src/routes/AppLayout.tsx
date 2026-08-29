@@ -11,6 +11,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Overview' },
+  // No permission: the directory is open to every authenticated employee, and the endpoint is
+  // safe because of what it does not select rather than because of who may call it.
+  { to: '/directory', label: 'Directory' },
   { to: '/tenants', label: 'Organisations', permission: 'platform.tenant.view' },
   { to: '/users', label: 'Users', permission: 'identity.user.view' },
   { to: '/roles', label: 'Roles', permission: 'identity.role.view' },

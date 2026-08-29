@@ -48,6 +48,11 @@
 .shell__main { flex: 1; padding: var(--space-6); overflow: auto; }
 
 /* --- Page --------------------------------------------------------------- */
+.page {
+  /* Capped for line length: a full-width table of names at 2560px is unreadable, and the eye
+     loses the row between one column and the next. */
+  max-width: 1200px;
+}
 .page__title { margin: 0 0 var(--space-6); font-size: var(--text-headline-medium-size); font-weight: 600; }
 .page__grid { display: grid; gap: var(--space-6); grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 
@@ -76,3 +81,79 @@ code {
   font-size: var(--text-body-medium-size);
   color: var(--color-on-surface-muted);
 }
+
+/* --- Page header and actions -------------------------------------------- */
+.page__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+/* The title carries its own bottom margin for pages without a header row; inside one the flex
+   gap does that job, so remove it rather than have the two stack. */
+.page__header .page__title { margin-bottom: 0; }
+
+.page__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  /* Sticks to the bottom of the viewport so the save button stays reachable on a long profile.
+     Without this, a form of forty fields hides its own submit control below the fold. */
+  position: sticky;
+  bottom: 0;
+  padding: var(--space-4) 0;
+  background: linear-gradient(to top, var(--color-surface) 70%, transparent);
+}
+
+/* --- Toolbar ------------------------------------------------------------ */
+.toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.toolbar__hint {
+  font-size: var(--text-body-medium-size);
+  color: var(--color-on-surface-muted);
+  /* Aligns with the input rather than the label above it. */
+  padding-bottom: var(--space-2);
+}
+
+.field--inline { flex: 1; max-width: 420px; }
+.field--inline .field__label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-body-medium-size);
+  color: var(--color-on-surface-muted);
+}
+
+/* --- Pagination --------------------------------------------------------- */
+.pagination {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+/* --- Banner ------------------------------------------------------------- */
+.banner {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-body-medium-size);
+}
+.banner--danger {
+  /* Border as well as fill: colour alone is not a signal for everyone (WCAG 1.4.1). */
+  background: var(--color-surface-variant);
+  border: 1px solid var(--color-danger);
+  color: var(--color-on-surface);
+}
+
+/* --- Inline link -------------------------------------------------------- */
+.link { color: var(--color-brand-primary); text-decoration: underline; }
+.link:hover { text-decoration: none; }
+
+/* Marks a required field. Paired with `required` on the input and hidden from screen readers,
+   which announce the requirement from the attribute rather than from a decorative asterisk. */
+.field__required { color: var(--color-danger); margin-left: var(--space-1); }
