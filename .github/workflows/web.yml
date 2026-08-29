@@ -36,6 +36,12 @@ jobs:
         working-directory: web
         run: npm run typecheck
 
+      # Catches what the compiler cannot see — chiefly React's rules of hooks. A useEffect with a
+      # missing dependency compiles, builds, and ships a component that renders stale data.
+      - name: Lint
+        working-directory: web
+        run: npm run lint
+
       # Neither the type-checker nor the build catches a class name with no matching CSS rule:
       # it compiles, ships, and renders as an unstyled element. A visual-only failure survives
       # every other check in this pipeline.

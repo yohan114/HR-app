@@ -220,7 +220,10 @@ function FieldRow({
   // still belongs on the profile, it simply is not theirs to edit. Distinct from the field being
   // absent, which is why this renders text rather than a disabled input: a disabled input looks
   // like something you could gain permission to use, and reads as an unfilled form.
-  if (field.editable === false) {
+  //
+  // A type this form cannot yet edit is shown the same way, for a different reason — see
+  // [EDITABLE_AS_TEXT].
+  if (field.editable === false || !EDITABLE_AS_TEXT.has(field.type)) {
     return (
       <div>
         <dt>
@@ -232,7 +235,18 @@ function FieldRow({
             </>
           )}
         </dt>
-        <dd>{display(value)}</dd>
+        <dd>
+          {display(value)}
+          {/*
+            Only when the *server* said it was editable and this form cannot oblige. Saying so is
+            better than a silently read-only field: an HR officer who has been told they can change
+            someone's department needs to know why they cannot do it here, rather than concluding
+            their permissions are wrong.
+          */}
+          {field.editable !== false && (
+            <span className="field__hint"> Needs a picker — not editable here yet.</span>
+          )}
+        </dd>
       </div>
     )
   }
@@ -283,14 +297,37 @@ function FieldRow({
 }
 
 /**
- * Maps a schema type onto an input type.
+ * Field types this form can edit with a plain input.
  *
- * Deliberately conservative: anything not obviously a date, number, email or phone falls back to
- * text. `REFERENCE`, `EMPLOYEE`, `DROPDOWN` and the rest need pickers backed by their own queries,
- * and rendering them as free text would let someone type a department name into a field that
- * stores a uuid. Those land with the reference-data pickers — until then they arrive as
- * `editable: false` from the server for most callers anyway.
+ * Everything else is rendered read-only **even when the server says it is editable**, and that is
+ * a deliberate choice rather than an oversight.
+ *
+ * The form sends every value as a string. For these types the server accepts one:
+ * `EmployeeWriter`'s coercions parse a UUID, a date and a number from text, and
+ * `CustomFieldValidator` accepts a numeric string for `NUMBER`. For the rest it does not, and the
+ * save is guaranteed to fail:
+ *
+ * - `REFERENCE` and `EMPLOYEE` store a uuid. The input would show the raw id, and any edit that
+ *   was not itself a valid uuid comes back `INVALID_REFERENCE`. Showing someone
+ *   `a3f1…` in a box labelled "Department" and inviting them to type into it is worse than
+ *   showing nothing.
+ * - `DROPDOWN` and `RADIO` are checked against their option list — free text is `INVALID_OPTION`.
+ * - `MULTI_SELECT` expects a list and `CHECKBOX` expects a boolean; a string is `WRONG_TYPE`.
+ * - `ATTACHMENT` needs an upload.
+ *
+ * So an editable-looking control for any of these would offer the user a save that cannot succeed.
+ * They become editable when the reference and employee pickers land, not before.
  */
+const EDITABLE_AS_TEXT = new Set<FormField['type']>([
+  'TEXT',
+  'MULTILINE_TEXT',
+  'NUMBER',
+  'DATE',
+  'EMAIL',
+  'PHONE',
+])
+
+/** Maps a schema type onto an input type. Only called for types in [EDITABLE_AS_TEXT]. */
 function inputType(field: FormField): string {
   switch (field.type) {
     case 'DATE':
@@ -320,9 +357,20 @@ function display(value: unknown): string {
   return text === '' ? '—' : text
 }
 
+/**
+ * Renders a JSON value as text for an input.
+ *
+ * Narrowed by hand rather than falling through to `String(value)`, which would produce
+ * `[object Object]` for anything the earlier branches missed — a placeholder that looks like data
+ * and would be sent straight back to the server on the next save.
+ */
 function stringify(value: unknown): string {
   if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  // The API sends dates as ISO strings, but the generated client parses some into `Date`.
   if (value instanceof Date) return value.toISOString().slice(0, 10)
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
+  // An address or a structured custom field. Shown as JSON because these are read-only here —
+  // `EDITABLE_AS_TEXT` excludes every type that would arrive as an object.
+  return JSON.stringify(value) ?? ''
 }

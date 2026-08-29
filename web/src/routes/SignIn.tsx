@@ -40,7 +40,18 @@ export function SignIn() {
     <main className="signin">
       <div className="signin__panel">
         <Card title="Sign in to HR Admin">
-          <form onSubmit={handleSubmit} noValidate>
+          {/*
+            `void` rather than passing the async function directly: React ignores the returned
+            promise, so a rejection inside `handleSubmit` would be an unhandled rejection that
+            surfaces only in the console. It sets its own error state, so there is nothing here to
+            catch — but saying so explicitly is what keeps that true.
+          */}
+          <form
+            onSubmit={(event) => {
+              void handleSubmit(event)
+            }}
+            noValidate
+          >
             <Field
               label="Organisation code"
               value={orgCode}

@@ -25,6 +25,9 @@ const BASE_PATH = import.meta.env.VITE_API_BASE_URL ?? ''
 
 /** Attaches the tenant header to the unauthenticated endpoints that need it. */
 const tenantHeaderMiddleware: Middleware = {
+  // The Middleware interface requires a Promise return. `async` is the idiomatic way to satisfy
+  // it, and there is genuinely nothing here to await.
+  // eslint-disable-next-line @typescript-eslint/require-await
   async pre(context: RequestContext) {
     const tenantCode = tokens.getTenantCode()
     if (tenantCode !== null) {
