@@ -161,6 +161,31 @@ class EntitySchemaTest {
         softly.assertAll()
     }
 
+    /**
+     * The hardcoded reference-table column list still matches the generator.
+     *
+     * [MigrationSchema.REFERENCE_TABLE_COLUMNS] mirrors what `create_reference_table()` declares in
+     * V5, because no regex over a call site could derive it. A mirror that nothing checks is a
+     * comment, and this one previously *claimed* to be checked by a test of this name that did not
+     * exist — which is worse than an unchecked mirror, because it stops anyone from adding the
+     * check.
+     */
+    @Test
+    fun `the reference-table column list matches the generator`() {
+        val v5 = MIGRATION_DIR.resolve("V5__organisation_structure.sql").readText()
+        val generator =
+            Regex("CREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+create_reference_table[\\s\\S]*?\\n\\$\\$;")
+                .find(v5)?.value
+
+        assertThat(generator).describedAs("create_reference_table() in V5").isNotNull()
+
+        for (column in MigrationSchema.REFERENCE_TABLE_COLUMNS) {
+            assertThat(generator!!)
+                .describedAs("generator declares '$column'")
+                .containsPattern("\\b$column\\b")
+        }
+    }
+
     /** Guards the parser itself: a silent parse failure would make every assertion above vacuous. */
     @Test
     fun `the migration parser found a plausible schema`() {
@@ -266,9 +291,9 @@ internal class MigrationSchema(
         /**
          * Columns of a table made by `create_reference_table()` in V5.
          *
-         * Mirrored from the generator body. `MigrationSchemaParserTest` asserts
-         * this list still matches what the function declares, so a change to the
-         * generator fails there rather than silently here.
+         * Mirrored from the generator body. `the reference-table column list
+         * matches the generator` above asserts the two stay in step, so editing
+         * the generator fails there rather than silently weakening this.
          */
         val REFERENCE_TABLE_COLUMNS =
             setOf(

@@ -28,24 +28,49 @@
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "ltree";
+-- Lets a GIN index include a scalar column alongside an array or jsonb one. Without it,
+-- `USING gin (tenant_id, scopes)` in V3 fails outright — GIN ships no operator class for `uuid`,
+-- so the statement aborts with "data type uuid has no default operator class". Available on RDS,
+-- Cloud SQL and the official image.
+CREATE EXTENSION IF NOT EXISTS "btree_gin";
 
 -- -----------------------------------------------------------------------------
 -- Helper: the tenant bound to the current connection.
 --
 -- STABLE (not IMMUTABLE) so the planner may cache it within a statement but
--- re-evaluates it per statement. Marked LEAKPROOF so the planner is allowed to
--- push the RLS predicate down beneath other qualifiers — without this, policy
--- evaluation can be pushed *after* a user-supplied function, which is a known
--- RLS information-leak vector.
+-- re-evaluates it per statement.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION current_tenant_id()
     RETURNS uuid
     LANGUAGE sql
     STABLE
-    LEAKPROOF
     PARALLEL SAFE
 AS $$
 SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid
+$$;
+
+-- LEAKPROOF is applied separately, and is allowed to fail.
+--
+-- PostgreSQL restricts the attribute to genuine superusers (`rolsuper`). A managed instance does
+-- not give you one: the RDS master role holds `rds_superuser`, which is a role membership and not
+-- the same thing, and Cloud SQL is equivalent. Declaring it inline therefore aborts the very first
+-- migration on every managed database — the schema would deploy on a developer's Docker container
+-- and nowhere else.
+--
+-- What it buys, precisely: a LEAKPROOF qualifier may be pushed below a security barrier, so the
+-- tenant predicate can be evaluated inside an index scan rather than on top of its output. That is
+-- a *performance* property. The isolation itself does not depend on it — PostgreSQL already
+-- refuses to evaluate a non-leakproof user function before an RLS policy, which is the actual leak
+-- vector. So losing it costs query plans, not safety, and a warning is the proportionate response.
+DO $$
+BEGIN
+    ALTER FUNCTION current_tenant_id() LEAKPROOF;
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE WARNING
+        'current_tenant_id() is not LEAKPROOF: this role is not a superuser. Tenant isolation is '
+        'unaffected, but RLS predicates cannot be pushed below security barriers and some plans '
+        'will be slower. Ask a superuser to run: ALTER FUNCTION current_tenant_id() LEAKPROOF;';
+END
 $$;
 
 COMMENT ON FUNCTION current_tenant_id() IS

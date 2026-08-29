@@ -126,7 +126,13 @@ class EmployeeService(
             if (value == null) employee.customFields.remove(key) else employee.customFields[key] = value
         }
 
-        val saved = employees.save(employee)
+        // `saveAndFlush`, not `save`. Hibernate increments `@Version` during flush, and flush
+        // otherwise happens at commit — after the projection below has already read it. The
+        // response would then carry the *pre*-increment version, the client would send it back as
+        // `If-Match`, and the second save of every session would 409 against a record nobody else
+        // had touched. Flushing here also surfaces a constraint violation as an exception from
+        // this method rather than from the commit, where the request has no context left.
+        val saved = employees.saveAndFlush(employee)
         return projection.project(saved, contextFor(caller, saved))
     }
 

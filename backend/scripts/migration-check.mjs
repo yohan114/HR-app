@@ -357,6 +357,63 @@ for (const [name, table] of tables) {
 }
 
 // ---------------------------------------------------------------------------
+// 8. A GIN index over a scalar column requires btree_gin
+//
+// GIN ships operator classes for arrays, jsonb and tsvector — not for uuid, text or timestamp. A
+// multicolumn GIN index that leads with a scalar (`USING gin (tenant_id, scopes)`) therefore fails
+// outright unless `btree_gin` is installed, and the failure aborts the whole migration.
+//
+// This is here because it happened: V3 carried exactly that index and nothing installed the
+// extension, so the schema would have deployed on nobody's machine.
+
+const SCALAR_GIN_TYPES = /^(uuid|text|varchar|char|int|integer|bigint|smallint|numeric|date|timestamp|timestamptz|boolean)/i
+
+const hasBtreeGin = sources.some(({ raw }) =>
+  /CREATE\s+EXTENSION[^;]*btree_gin/i.test(raw.replace(/--[^\n]*/g, ' ')),
+)
+
+if (!hasBtreeGin) {
+  const ginIndex =
+    /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?[a-z_][a-z0-9_]*\s+ON\s+([a-z_][a-z0-9_]*)\s+USING\s+gin\s*\(([^)]*)\)/gi
+
+  for (const { file, sql } of sources) {
+    let match
+    while ((match = ginIndex.exec(sql)) !== null) {
+      const table = match[1].toLowerCase()
+      const indexed = match[2].split(',').map((c) => c.trim().toLowerCase())
+      const known = tables.get(table)
+      if (!known) continue
+
+      for (const column of indexed) {
+        const declaration = columnDeclaration(known, column)
+        // An array type is written `text[]`, and GIN indexes arrays natively — but its *element*
+        // type is a scalar, so a naive prefix match reports `text[]` as a scalar. That false
+        // positive appeared on the first run of this rule, on the very index that motivated it.
+        const isArray = declaration !== null && /^\w+\s*\[\s*\]/.test(declaration)
+        if (declaration !== null && !isArray && SCALAR_GIN_TYPES.test(declaration)) {
+          fail(
+            `${file}: GIN index on ${table} includes the scalar column '${column}', but no ` +
+              `migration installs btree_gin. GIN has no operator class for that type, so the ` +
+              `statement aborts and the migration fails.`,
+          )
+        }
+      }
+    }
+  }
+}
+
+/** The type of a column, as written in its CREATE TABLE line. Null if not found. */
+function columnDeclaration(table, column) {
+  for (const line of table.body.split(/,(?![^(]*\))/)) {
+    const trimmed = line.trim()
+    if (trimmed.toLowerCase().startsWith(column + ' ')) {
+      return trimmed.slice(column.length).trim()
+    }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // 5. Foreign keys reference a table that already exists
 
 for (const { file, version: v, sql } of sources) {

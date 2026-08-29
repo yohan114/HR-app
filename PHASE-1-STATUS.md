@@ -464,6 +464,101 @@ compiled.
 
 ---
 
+## Adversarial review: 30 confirmed defects
+
+Five reviewers over the Phase 1 backend — authorisation, SQL, the write path, the client contract,
+and whether the checkers themselves hold — with every finding then re-examined by an independent
+skeptic instructed to default to *refuted*. **36 findings, 30 confirmed, 6 refuted.**
+
+The refutation pass earned its place. Six did not survive it, and an earlier review in this project
+confidently reported a kotlinx deserialisation crash that did not exist when actually tested.
+
+### Fixed
+
+**The migration set could not run on any managed database.** Two independent defects, either one
+fatal, and both invisible locally because Docker's `postgres` user is a real superuser:
+
+- `V3` creates `USING gin (tenant_id, scopes)`. GIN ships no operator class for `uuid` — that lives
+  in `btree_gin`, which nothing installed. The statement aborts and the migration fails.
+- `V1` declares `current_tenant_id()` as `LEAKPROOF`, which PostgreSQL restricts to genuine
+  superusers. A managed instance does not give you one: the RDS master role holds `rds_superuser`,
+  a role membership, which is not the same thing. The **first** migration dies.
+
+  Now applied in a `DO` block that tolerates `insufficient_privilege` and warns. Worth being
+  precise about what that costs: `LEAKPROOF` lets the planner push the tenant predicate below a
+  security barrier — a *performance* property. Isolation does not depend on it, because PostgreSQL
+  already refuses to evaluate a non-leakproof user function ahead of an RLS policy. The original
+  comment overstated this, and has been corrected.
+
+**`optionalUuid` and `optionalDate` silently cleared a field for any non-string value.**
+`PATCH {"departmentId": 12345}` unset the department and answered **200** — data loss behind a
+success response, the one outcome this codebase refuses everywhere else. Now `WRONG_TYPE`.
+
+**PATCH returned the pre-increment version.** Hibernate bumps `@Version` at flush, which happens at
+commit — after the projection had already read it. The response carried version N while the
+database held N+1, so a client following the documented `If-Match` protocol would 409 on its second
+save against a record nobody else had touched. Now `saveAndFlush`.
+
+**Two leaks in `FieldMasker`**, both in code written specifically to prevent leaks:
+
+- `contains('@')` is not a test for an email address. An address line such as
+  `Flat 3 @ 42 Galle Road, Colombo` was routed to the email branch, which preserves everything after
+  the last `@` — so the mask published the entire street address.
+- Only a *built-in* date arrives as a `LocalDate`. A tenant-defined `DATE` custom field lives in
+  JSONB and arrives as `"1990-05-02"`, which passed the number test — eight digits once the dashes
+  are stripped — and was masked as `••••5-02`, publishing the month and day of a date of birth.
+
+**`EntitySchemaTest` cited a test that did not exist.** Its comment claimed
+`MigrationSchemaParserTest` verified the hardcoded reference-table column list. Nothing did. A false
+claim in a comment is worse than an unchecked mirror, because it stops anyone adding the check. The
+test now exists.
+
+`migration-check.mjs` gained a rule for the GIN class of error. Its first run produced a false
+positive on `text[]` — an array, which GIN indexes natively, whose element type is a scalar — caught
+because it fired on the very index that motivated the rule.
+
+### Confirmed, not yet fixed
+
+Recorded so none of it is lost. Two are worth reading before the next client change: the web console
+cannot save a built-in `DATE` at all, and a `MASKED` field emits `••••` where the spec promises a
+date or uuid, which aborts decoding in the Kotlin and Swift clients — masking and codegen have not
+been reconciled.
+
+Five of the twenty-four are defects in the checkers themselves, which is the finding I would have
+been least likely to reach alone: `css-class-check` cannot see a template-literal `className`,
+`migration-check` misses a two-line `DROP COLUMN` and a `tenant_id` added by `ALTER TABLE`, and
+`ApiContractTest` compares only path and method, so a renamed query parameter is undetectable drift.
+The status table above cites those checkers as evidence, so their blind spots are load-bearing.
+
+| Severity | Area | Finding |
+|---|---|---|
+| high | contract | Web console cannot save any built-in DATE field: the generated TS client calls `toISOString()` on the string it is given |
+| high | contract | A MASKED field violates its own declared type: the server emits `••••` where the spec says date/uuid/integer, aborting decode in the Kotlin and Swift clients |
+| medium | authorisation | An explicit `field_permission` row silently revokes self-service and self-read on the owner's own record |
+| medium | authorisation | `GET /v1/forms/{entityType}` applies no field permissions, contrary to its own OpenAPI contract |
+| medium | sql | Partitions of `audit_log`, `change_feed` and `mutation_log` have no RLS and no append-only lockdown — cross-tenant read and audit deletion via the partition |
+| medium | sql | `mutation_log`'s idempotency uniqueness is defeated by the partition key — the same idempotency key inserts twice |
+| medium | write-path | There is no way to clear a custom field via `clearFields`; the web console sends exactly that and gets 400 `UNKNOWN_FIELD` |
+| medium | write-path | A `customFields` value that is not a JSON object is silently discarded and the save returns 200 |
+| medium | write-path | A whitespace-only string bypasses every type check and is stored verbatim in a typed JSONB slot |
+| medium | contract | Clearing a tenant custom field from the web console is rejected with 400 `UNKNOWN_FIELD` |
+| medium | contract | The employee form schema names three `referenceTable`s that no endpoint serves, and one bad name 404s the whole batch reference call |
+| medium | checkers | `css-class-check.mjs` never sees classes in template-literal or render-prop `className`s — including `btn`, `badge` and `shell__link` |
+| medium | checkers | `migration-check` misses a `DROP COLUMN` written across two lines — the repo's own house style |
+| medium | checkers | `migration-check`'s foreign-key ordering check is blind to `REFERENCES <table>` without a column list |
+| medium | checkers | `migration-check` fails correct SQL when a tenant_id-leading index comes from a table-level `UNIQUE` constraint |
+| medium | checkers | A `tenant_id` column introduced by `ALTER TABLE ADD COLUMN` escapes `migration-check`'s RLS assertion entirely |
+| low | authorisation | `genderTypeId` and `nationalityId` are omitted from `ALWAYS_SENSITIVE` while their four sibling columns are in it |
+| low | sql | No index supports the directory's `ORDER BY` / keyset predicate — every directory page is a full scan and sort |
+| low | sql | The reporting-cycle guard reads stale hierarchy state, so a set-based supervisor `UPDATE` escapes it and the rebuild recurses until the backend aborts |
+| low | sql | `bank_account_split_value_present` allows a negative FIXED split amount |
+| low | write-path | A NUMBER custom field with an out-of-range JSON literal throws `NumberFormatException` and becomes a 500 |
+| low | write-path | A tenant-configured validation pattern is applied to user input with no backtracking guard |
+| low | checkers | `ApiContractTest` sees only `@RestController` classes and only path+method, so a renamed query parameter is undetectable drift |
+| low | checkers | `EntitySchemaTest`'s reference-table mirror — **fixed above**, listed for completeness |
+
+---
+
 ## The web console can now show a person
 
 Two screens, and the first thing in this phase that can be *seen* working rather than reasoned

@@ -56,6 +56,37 @@ class FieldMaskerTest {
         assertThat(FieldMasker.mask("N1234567")).isEqualTo("••••")
     }
 
+    /**
+     * Only a *built-in* date arrives as a `LocalDate`. A tenant-defined DATE custom field lives in
+     * JSONB and arrives as a string — which passed the number test, because stripping the dashes
+     * leaves eight digits, and was masked as `••••5-02`. That published the month and day of a
+     * date of birth from the code whose whole job is to withhold them.
+     */
+    @Test
+    fun `a date written as text reveals no component`() {
+        listOf("1990-05-02", "1990/05/02", "02-05-1990", "1990-05-02T10:15:00Z").forEach { date ->
+            assertThat(FieldMasker.mask(date)).describedAs(date).isEqualTo("••••")
+        }
+    }
+
+    /**
+     * `contains('@')` is not a test for an email address. An address line containing one was
+     * routed to the email branch, which preserves everything after the last `@` — so the mask
+     * emitted the entire street address.
+     */
+    @Test
+    fun `text containing an at-sign is not treated as an email`() {
+        val masked = FieldMasker.mask("Flat 3 @ 42 Galle Road, Colombo") as String
+
+        assertThat(masked).isEqualTo("••••")
+        assertThat(masked).doesNotContain("Galle").doesNotContain("Colombo").doesNotContain("42")
+    }
+
+    @Test
+    fun `a real email is still masked to its domain`() {
+        assertThat(FieldMasker.mask("nimali@demo.local")).isEqualTo("••••@demo.local")
+    }
+
     @Test
     fun `an email keeps its domain and loses the local part`() {
         assertThat(FieldMasker.mask("alice.smith@example.com")).isEqualTo("••••@example.com")

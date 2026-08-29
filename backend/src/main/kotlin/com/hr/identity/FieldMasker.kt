@@ -39,6 +39,17 @@ object FieldMasker {
     /** Digits, and the separators that appear inside account and phone numbers. */
     private val NUMERIC_SEQUENCE = Regex("""[0-9][0-9 \-+()/]*""")
 
+    /**
+     * Date-shaped text, in the separators the API and JSONB actually carry.
+     *
+     * Covers ISO (`1990-05-02`), the same with a time suffix, and the slash and dot forms a bulk
+     * import might land in a custom field.
+     */
+    private val DATE_LIKE = Regex("""\d{4}[-/.]\d{1,2}[-/.]\d{1,2}([T ].*)?|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}""")
+
+    /** No whitespace, one `@`, a dotted domain. Deliberately stricter than "contains an @". */
+    private val EMAIL_LIKE = Regex("""[^\s@]+@[^\s@.]+(\.[^\s@.]+)+""")
+
     fun mask(value: Any?): Any? =
         when (value) {
             null -> null
@@ -65,10 +76,36 @@ object FieldMasker {
     private fun maskString(value: String): String =
         when {
             value.isEmpty() -> value
-            value.contains('@') -> maskEmail(value)
+            // Order matters: the date test must come before the number test, because an ISO date
+            // passes the number test. See [looksLikeDate].
+            looksLikeDate(value) -> DOTS
+            looksLikeEmail(value) -> maskEmail(value)
             isMaskableNumber(value) -> DOTS + value.takeLast(4)
             else -> DOTS
         }
+
+    /**
+     * A date written as text.
+     *
+     * Necessary because only a *built-in* date arrives as a `LocalDate`. A tenant-defined `DATE`
+     * custom field lives in a JSONB column and arrives as the string `"1990-05-02"` — which then
+     * fell through to the number branch, since stripping the dashes leaves eight digits, and was
+     * masked as `••••5-02`. That published the month and day of a date of birth from the code
+     * whose entire purpose is to withhold them.
+     */
+    private fun looksLikeDate(value: String): Boolean = DATE_LIKE.matches(value.trim())
+
+    /**
+     * A conservative test for an actual email address.
+     *
+     * `contains('@')` is not that test, and using it leaked badly: an address line such as
+     * `Flat 3 @ 42 Galle Road, Colombo` was routed to [maskEmail], which preserves everything from
+     * the last `@` onwards — so the mask emitted the entire street address.
+     *
+     * This requires the shape of an address rather than the presence of a character: no
+     * whitespace, exactly one `@`, and a dotted domain after it.
+     */
+    private fun looksLikeEmail(value: String): Boolean = EMAIL_LIKE.matches(value.trim())
 
     private fun isMaskableNumber(value: String): Boolean =
         NUMERIC_SEQUENCE.matches(value.trim().removePrefix("+")) &&

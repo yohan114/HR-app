@@ -210,7 +210,15 @@ class EmployeeWriter {
 
         private fun optionalUuid(value: Any?): UUID? {
             if (value == null) return null
-            val text = (value as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            // A non-string is rejected, not treated as absent. `as? String` returning null for a
+            // number or an object used to fall through to `return null`, which *cleared the
+            // field* and answered 200 — so `{"departmentId": 12345}` silently unset the
+            // department and reported success. Data loss behind a success response is the one
+            // outcome this codebase refuses everywhere else.
+            val text =
+                (value as? String)?.trim()
+                    ?: throw CoercionFailure("WRONG_TYPE", "Expected a reference id as text")
+            if (text.isEmpty()) return null
             return runCatching { UUID.fromString(text) }
                 .getOrElse { throw CoercionFailure("INVALID_REFERENCE", "Not a valid reference") }
         }
@@ -220,7 +228,11 @@ class EmployeeWriter {
 
         private fun optionalDate(value: Any?): LocalDate? {
             if (value == null) return null
-            val text = (value as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            // Same reasoning as optionalUuid: a non-string is a rejection, not a silent clear.
+            val text =
+                (value as? String)?.trim()
+                    ?: throw CoercionFailure("WRONG_TYPE", "Expected a date as text")
+            if (text.isEmpty()) return null
             return try {
                 LocalDate.parse(text)
             } catch (e: DateTimeParseException) {
