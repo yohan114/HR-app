@@ -464,6 +464,49 @@ compiled.
 
 ---
 
+## The home screen is decided
+
+[docs/home-composite.md](docs/home-composite.md). Three designs, written independently from
+different angles, each judged by three adversarial reviewers reading the actual repository. **Every
+design scored 4–5 out of 10**, and that unanimity was the finding: the reviewers were not choosing
+between good options, they were finding the same defect in all three.
+
+**All three put the home screen's freshness marker outside the tables it describes, and all three
+produce a permanently blank home screen.** `SyncEngine.resetScope` clears *every* applier in the
+shared registry for *any* scope, so an unrelated `410 SYNC_CURSOR_EXPIRED` wipes the home tables
+while a bespoke `home_meta` ETag survives. The next refresh returns 304, the client writes nothing,
+and home is empty forever — rendered as the *designed* empty state, so indistinguishable from a
+tenant with no cards. No error, no retry, nothing in telemetry. Recovery is a reinstall.
+
+Each design justified the bespoke table by saying home has no cursor and cannot use `sync_cursor`.
+That is false: `cursor` is nullable on both platforms and there is a `lastSyncedAt` column.
+`scope='home', cursor=NULL` is exactly the slot. Home is a sync scope, and the composite endpoint is
+a cold-start convenience over the same resolvers — not a second write path with its own rules.
+
+Four further decisions the review forced, each recorded with its reasoning in the doc: no
+conditional requests (both generated clients treat 304 as an *error* — Swift throws, Retrofit
+reports failure — and a 304 costs the server as much as a 200); counts ship with their identity sets
+so the client can subtract its own outbox; no closed OpenAPI enums on the wire, because an unknown
+card type from a newer server would abort decoding of the entire response and blank the screen; and
+expression indexes plus tenant-scoped caching before the milestones query meets a 10,000-employee
+tenant at 09:00.
+
+### A security finding about code that already exists
+
+One reviewer found that a card gated on `FieldPermissions.accessFor(..., "joinDate")` alone would
+leak. `joinDate` is not in `ALWAYS_SENSITIVE`, so it resolves to `READ` for every colleague and the
+check passes for every active employee — while `V8` grants the default `EMPLOYEE` role only
+`employee.directory`, so those same users get a **404** from `GET /v1/employees/{id}` on the very
+records the card just listed.
+
+The cause is that a per-field check is not equivalent to `EmployeeService.assertVisible`. **A field
+check that passes is not evidence the caller may see the record**; it is only evidence that if they
+may, they may see that field of it. No live bug — the card does not exist — but the trap is one line
+away for whoever builds it, so the warning now sits in the doc comment on `FieldPermissions`, which
+is the type they will be holding when they make the mistake.
+
+---
+
 ## What the home-composite design research turned up
 
 Three independent designs for `GET /v1/mobile/home` were produced from different angles

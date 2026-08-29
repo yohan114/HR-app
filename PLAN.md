@@ -20,6 +20,7 @@ A native HR mobile application (Android + iOS) with a custom backend, built to m
 | **[Phase plans](docs/phases/README.md)** | **Detailed per-phase execution plans** — week-by-week, ~700 tasks with IDs/owners/sizes, deliverables, exit criteria, demo scripts |
 | [Decision records](docs/adr/README.md) | The decisions that were expensive to make and would be expensive to reverse — and why the intuitive alternative was rejected |
 | [Sync protocol](docs/sync-protocol.md) | The offline delta-sync contract, written before either mobile client so neither could define it by accident |
+| [Home screen design](docs/home-composite.md) | Why the mobile home screen is a sync scope rather than a snapshot endpoint — and the blank-screen failure that decided it |
 
 ### Phase execution plans
 
