@@ -98,6 +98,30 @@ class AuthenticationService(
             throw UnauthenticatedException(ErrorCode.INVALID_CREDENTIALS, "Invalid username or password")
         }
 
+        // The password was right. If a second factor is enrolled, stop here and hand back a
+        // challenge rather than a session.
+        //
+        // Note what is deliberately *not* done yet: the failed-attempt counter is reset and the
+        // last-login timestamp is not. Recording a successful login before the second factor has
+        // been satisfied would make "last signed in" mean "last typed the right password", which
+        // is exactly the event a user checks that field to detect.
+        if (user.mfaEnabled) {
+            user.recordSuccessfulLogin()
+            users.save(user)
+
+            val challenge = tokenService.issueMfaChallengeToken(user.id)
+            audit(tenantId, LoginMethod.PASSWORD, LoginResult.MFA_REQUIRED, user.id, null, request.username, null, userAgent)
+
+            throw UnauthenticatedException(
+                ErrorCode.MFA_REQUIRED,
+                "A verification code is required",
+                mapOf(
+                    "mfaToken" to challenge.value,
+                    "expiresInSeconds" to challenge.expiresInSeconds,
+                ),
+            )
+        }
+
         user.recordSuccessfulLogin()
         users.save(user)
 
@@ -105,6 +129,44 @@ class AuthenticationService(
         val issued = issueTokenPair(user, device, LoginMethod.PASSWORD, parentToken = null)
 
         audit(tenantId, LoginMethod.PASSWORD, LoginResult.SUCCESS, user.id, device.id, request.username, null, userAgent)
+
+        return issued.copy(
+            biometricEnrolmentOffered = !device.biometricEnrolled && device.platform in BIOMETRIC_CAPABLE,
+            mustChangePassword = user.mustChangePassword,
+        )
+    }
+
+    /**
+     * Issues the session once the second factor has been satisfied.
+     *
+     * Called by `MfaController` after `MfaService.verify` succeeds. It deliberately does **not**
+     * re-check the code: verification and consumption belong together, and splitting them would
+     * create a window in which a recovery code has been accepted but not yet spent.
+     *
+     * The device is registered here rather than at the password step, so a login abandoned at the
+     * challenge screen does not leave a device record — and therefore does not offer biometric
+     * enrolment to something that never completed a sign-in.
+     */
+    @Transactional
+    fun completeMfaSignIn(
+        userId: UUID,
+        deviceInfo: DeviceInfoDto,
+        userAgent: String?,
+    ): TokenResponse {
+        val tenantId = TenantContext.currentId()
+        val user = users.findById(userId).orElseThrow {
+            UnauthenticatedException(ErrorCode.TOKEN_INVALID, "That challenge is no longer valid")
+        }
+
+        if (user.status != UserStatus.ACTIVE) {
+            audit(tenantId, LoginMethod.MFA, LoginResult.FAILURE, user.id, null, user.username, ErrorCode.ACCOUNT_DISABLED, userAgent)
+            throw ForbiddenException(ErrorCode.ACCOUNT_DISABLED, "This account is not active")
+        }
+
+        val device = upsertDevice(user.id, deviceInfo)
+        val issued = issueTokenPair(user, device, LoginMethod.MFA, parentToken = null)
+
+        audit(tenantId, LoginMethod.MFA, LoginResult.SUCCESS, user.id, device.id, user.username, null, userAgent)
 
         return issued.copy(
             biometricEnrolmentOffered = !device.biometricEnrolled && device.platform in BIOMETRIC_CAPABLE,

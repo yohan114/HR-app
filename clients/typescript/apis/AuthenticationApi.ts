@@ -19,7 +19,12 @@ import type {
   BiometricGrantRequest,
   Device,
   JwkSet,
+  MfaCodeRequest,
+  MfaEnrolment,
+  MfaStatus,
+  MfaVerifyRequest,
   PasswordGrantRequest,
+  RecoveryCodesResponse,
   RefreshTokenRequest,
   RegisterDeviceRequest,
   ResolveTenantRequest,
@@ -35,8 +40,18 @@ import {
     DeviceToJSON,
     JwkSetFromJSON,
     JwkSetToJSON,
+    MfaCodeRequestFromJSON,
+    MfaCodeRequestToJSON,
+    MfaEnrolmentFromJSON,
+    MfaEnrolmentToJSON,
+    MfaStatusFromJSON,
+    MfaStatusToJSON,
+    MfaVerifyRequestFromJSON,
+    MfaVerifyRequestToJSON,
     PasswordGrantRequestFromJSON,
     PasswordGrantRequestToJSON,
+    RecoveryCodesResponseFromJSON,
+    RecoveryCodesResponseToJSON,
     RefreshTokenRequestFromJSON,
     RefreshTokenRequestToJSON,
     RegisterDeviceRequestFromJSON,
@@ -54,6 +69,14 @@ export interface BiometricTokenRequest {
     biometricGrantRequest: BiometricGrantRequest;
 }
 
+export interface ConfirmMfaEnrolmentRequest {
+    mfaCodeRequest: MfaCodeRequest;
+}
+
+export interface DisableMfaRequest {
+    mfaCodeRequest: MfaCodeRequest;
+}
+
 export interface IssueTokenRequest {
     xTenantCode: string;
     passwordGrantRequest: PasswordGrantRequest;
@@ -66,6 +89,10 @@ export interface LogoutRequest {
 export interface RefreshTokenOperationRequest {
     xTenantCode: string;
     refreshTokenRequest: RefreshTokenRequest;
+}
+
+export interface RegenerateRecoveryCodesRequest {
+    mfaCodeRequest: MfaCodeRequest;
 }
 
 export interface RegisterDeviceOperationRequest {
@@ -81,6 +108,11 @@ export interface RevokeDeviceRequest {
     id: string;
 }
 
+export interface VerifyMfaRequest {
+    xTenantCode: string;
+    mfaVerifyRequest: MfaVerifyRequest;
+}
+
 /**
  * AuthenticationApi - interface
  * 
@@ -88,6 +120,21 @@ export interface RevokeDeviceRequest {
  * @interface AuthenticationApiInterface
  */
 export interface AuthenticationApiInterface {
+    /**
+     * Issues a TOTP secret and the `otpauth://` URI an authenticator app reads from a QR code. The secret is stored immediately but **MFA is not switched on** until `/v1/auth/mfa/enrol/confirm` succeeds.  Two steps rather than one deliberately: a user who mis-scans, or scans into an app they then delete, would otherwise lock themselves out of their own account with no route back except an administrator — which is a support call and a social-engineering path straight past the factor. Calling this again replaces the pending secret, which is what someone does after scanning into the wrong app. 
+     * @summary Begin enrolment — returns a secret and a QR payload
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AuthenticationApiInterface
+     */
+    beginMfaEnrolmentRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<MfaEnrolment>>;
+
+    /**
+     * Issues a TOTP secret and the `otpauth://` URI an authenticator app reads from a QR code. The secret is stored immediately but **MFA is not switched on** until `/v1/auth/mfa/enrol/confirm` succeeds.  Two steps rather than one deliberately: a user who mis-scans, or scans into an app they then delete, would otherwise lock themselves out of their own account with no route back except an administrator — which is a support call and a social-engineering path straight past the factor. Calling this again replaces the pending secret, which is what someone does after scanning into the wrong app. 
+     * Begin enrolment — returns a secret and a QR payload
+     */
+    beginMfaEnrolment(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MfaEnrolment>;
+
     /**
      * The core of the \"no password after enrolment\" experience.  The refresh token is sealed at enrolment in the device\'s Android Keystore or iOS Secure Enclave under a key that requires user authentication. The OS releases it only after a successful fingerprint or face match, and invalidates the key entirely if the device\'s enrolled biometrics change.  The server therefore trusts the *presentation* of the sealed token as evidence that the biometric check passed — it never receives or stores biometric data itself.  Two conditions beyond a normal refresh: the token must have been issued to the device presenting it, and that device must have completed biometric enrolment. Together these stop a token exfiltrated from one device being replayed from another. 
      * @summary Exchange a device-sealed refresh token after a biometric assertion
@@ -106,6 +153,38 @@ export interface AuthenticationApiInterface {
     biometricToken(requestParameters: BiometricTokenRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<TokenResponse>;
 
     /**
+     * Proves the app and the server agree before anything depends on it, then switches MFA on.  **Returns the recovery codes, and this is the only time they exist in plaintext.** They are stored as hashes, so neither the server nor a database backup can produce them again. A client that does not show them here has lost them for that user. 
+     * @summary Confirm enrolment with a code from the authenticator
+     * @param {MfaCodeRequest} mfaCodeRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AuthenticationApiInterface
+     */
+    confirmMfaEnrolmentRaw(requestParameters: ConfirmMfaEnrolmentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<RecoveryCodesResponse>>;
+
+    /**
+     * Proves the app and the server agree before anything depends on it, then switches MFA on.  **Returns the recovery codes, and this is the only time they exist in plaintext.** They are stored as hashes, so neither the server nor a database backup can produce them again. A client that does not show them here has lost them for that user. 
+     * Confirm enrolment with a code from the authenticator
+     */
+    confirmMfaEnrolment(requestParameters: ConfirmMfaEnrolmentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<RecoveryCodesResponse>;
+
+    /**
+     * Requires a current code — possession, not just a live session. Without that, anyone who borrowed an unlocked laptop could switch the factor off from a settings screen, which makes having it decorative. 
+     * @summary Turn the second factor off
+     * @param {MfaCodeRequest} mfaCodeRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AuthenticationApiInterface
+     */
+    disableMfaRaw(requestParameters: DisableMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     * Requires a current code — possession, not just a live session. Without that, anyone who borrowed an unlocked laptop could switch the factor off from a settings screen, which makes having it decorative. 
+     * Turn the second factor off
+     */
+    disableMfa(requestParameters: DisableMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void>;
+
+    /**
      * The public half of the key used to sign access tokens, so that other services, an API gateway or a third-party integration can verify our tokens without holding any credential of their own.  The application itself does not call this endpoint — it verifies with the in-process public key rather than issuing an HTTP request to itself.  During a key rotation window this returns both the outgoing and incoming keys, so tokens signed with either continue to verify. 
      * @summary Public JSON Web Key Set
      * @param {*} [options] Override http request option.
@@ -119,6 +198,21 @@ export interface AuthenticationApiInterface {
      * Public JSON Web Key Set
      */
     getJwks(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<JwkSet>;
+
+    /**
+     * Drives the security settings screen: whether to offer enrolment, resume a half-finished one, or warn that recovery codes are running low. 
+     * @summary Whether a second factor is enrolled
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AuthenticationApiInterface
+     */
+    getMfaStatusRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<MfaStatus>>;
+
+    /**
+     * Drives the security settings screen: whether to offer enrolment, resume a half-finished one, or warn that recovery codes are running low. 
+     * Whether a second factor is enrolled
+     */
+    getMfaStatus(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MfaStatus>;
 
     /**
      * Exchanges credentials for an access and refresh token pair, and registers the calling device in the same round trip so the client can offer biometric enrolment immediately.  Failures are deliberately uniform: a wrong password and an unknown username both return `INVALID_CREDENTIALS`, so this endpoint cannot be used to enumerate accounts. Repeated failures lock the account per the tenant\'s password policy. 
@@ -186,6 +280,22 @@ export interface AuthenticationApiInterface {
     refreshToken(requestParameters: RefreshTokenOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<TokenResponse>;
 
     /**
+     * Invalidates every existing code. Requires a current code, for the same reason as disabling. 
+     * @summary Issue a fresh set of recovery codes
+     * @param {MfaCodeRequest} mfaCodeRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AuthenticationApiInterface
+     */
+    regenerateRecoveryCodesRaw(requestParameters: RegenerateRecoveryCodesRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<RecoveryCodesResponse>>;
+
+    /**
+     * Invalidates every existing code. Requires a current code, for the same reason as disabling. 
+     * Issue a fresh set of recovery codes
+     */
+    regenerateRecoveryCodes(requestParameters: RegenerateRecoveryCodesRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<RecoveryCodesResponse>;
+
+    /**
      * Registers or updates a device for the authenticated user, including its push token.  Called on sign-in and again whenever the push token rotates. Idempotent on `(user, deviceId)`: re-registering an existing device updates it rather than creating a duplicate. 
      * @summary Register the current device
      * @param {RegisterDeviceRequest} registerDeviceRequest 
@@ -234,12 +344,65 @@ export interface AuthenticationApiInterface {
      */
     revokeDevice(requestParameters: RevokeDeviceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void>;
 
+    /**
+     * The second half of a password sign-in. Called after `/v1/auth/token` answers `401 MFA_REQUIRED` with an `mfaToken` in `details`.  Accepts either a TOTP code or a recovery code — the user cannot always tell you which they are holding, and making them choose adds a decision at the worst possible moment. A recovery code is consumed on use.  The challenge token goes in the **body**, not the `Authorization` header: it is not a bearer token for this API, and putting it there invites proxies and client libraries to treat it as one. It carries no roles and no employee id, so even if something did accept it as a session it would grant nothing.  Every failure — wrong code, spent recovery code, account without a second factor — returns the same `MFA_INVALID_CODE`. Distinguishing them would tell whoever holds the challenge which case they are in. 
+     * @summary Complete a sign-in with a second factor
+     * @param {string} xTenantCode Organisation code. Required on unauthenticated endpoints, where no token exists yet.
+     * @param {MfaVerifyRequest} mfaVerifyRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AuthenticationApiInterface
+     */
+    verifyMfaRaw(requestParameters: VerifyMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<TokenResponse>>;
+
+    /**
+     * The second half of a password sign-in. Called after `/v1/auth/token` answers `401 MFA_REQUIRED` with an `mfaToken` in `details`.  Accepts either a TOTP code or a recovery code — the user cannot always tell you which they are holding, and making them choose adds a decision at the worst possible moment. A recovery code is consumed on use.  The challenge token goes in the **body**, not the `Authorization` header: it is not a bearer token for this API, and putting it there invites proxies and client libraries to treat it as one. It carries no roles and no employee id, so even if something did accept it as a session it would grant nothing.  Every failure — wrong code, spent recovery code, account without a second factor — returns the same `MFA_INVALID_CODE`. Distinguishing them would tell whoever holds the challenge which case they are in. 
+     * Complete a sign-in with a second factor
+     */
+    verifyMfa(requestParameters: VerifyMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<TokenResponse>;
+
 }
 
 /**
  * 
  */
 export class AuthenticationApi extends runtime.BaseAPI implements AuthenticationApiInterface {
+
+    /**
+     * Issues a TOTP secret and the `otpauth://` URI an authenticator app reads from a QR code. The secret is stored immediately but **MFA is not switched on** until `/v1/auth/mfa/enrol/confirm` succeeds.  Two steps rather than one deliberately: a user who mis-scans, or scans into an app they then delete, would otherwise lock themselves out of their own account with no route back except an administrator — which is a support call and a social-engineering path straight past the factor. Calling this again replaces the pending secret, which is what someone does after scanning into the wrong app. 
+     * Begin enrolment — returns a secret and a QR payload
+     */
+    async beginMfaEnrolmentRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<MfaEnrolment>> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/auth/mfa/enrol`,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => MfaEnrolmentFromJSON(jsonValue));
+    }
+
+    /**
+     * Issues a TOTP secret and the `otpauth://` URI an authenticator app reads from a QR code. The secret is stored immediately but **MFA is not switched on** until `/v1/auth/mfa/enrol/confirm` succeeds.  Two steps rather than one deliberately: a user who mis-scans, or scans into an app they then delete, would otherwise lock themselves out of their own account with no route back except an administrator — which is a support call and a social-engineering path straight past the factor. Calling this again replaces the pending secret, which is what someone does after scanning into the wrong app. 
+     * Begin enrolment — returns a secret and a QR payload
+     */
+    async beginMfaEnrolment(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MfaEnrolment> {
+        const response = await this.beginMfaEnrolmentRaw(initOverrides);
+        return await response.value();
+    }
 
     /**
      * The core of the \"no password after enrolment\" experience.  The refresh token is sealed at enrolment in the device\'s Android Keystore or iOS Secure Enclave under a key that requires user authentication. The OS releases it only after a successful fingerprint or face match, and invalidates the key entirely if the device\'s enrolled biometrics change.  The server therefore trusts the *presentation* of the sealed token as evidence that the biometric check passed — it never receives or stores biometric data itself.  Two conditions beyond a normal refresh: the token must have been issued to the device presenting it, and that device must have completed biometric enrolment. Together these stop a token exfiltrated from one device being replayed from another. 
@@ -291,6 +454,97 @@ export class AuthenticationApi extends runtime.BaseAPI implements Authentication
     }
 
     /**
+     * Proves the app and the server agree before anything depends on it, then switches MFA on.  **Returns the recovery codes, and this is the only time they exist in plaintext.** They are stored as hashes, so neither the server nor a database backup can produce them again. A client that does not show them here has lost them for that user. 
+     * Confirm enrolment with a code from the authenticator
+     */
+    async confirmMfaEnrolmentRaw(requestParameters: ConfirmMfaEnrolmentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<RecoveryCodesResponse>> {
+        if (requestParameters['mfaCodeRequest'] == null) {
+            throw new runtime.RequiredError(
+                'mfaCodeRequest',
+                'Required parameter "mfaCodeRequest" was null or undefined when calling confirmMfaEnrolment().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/auth/mfa/enrol/confirm`,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: MfaCodeRequestToJSON(requestParameters['mfaCodeRequest']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => RecoveryCodesResponseFromJSON(jsonValue));
+    }
+
+    /**
+     * Proves the app and the server agree before anything depends on it, then switches MFA on.  **Returns the recovery codes, and this is the only time they exist in plaintext.** They are stored as hashes, so neither the server nor a database backup can produce them again. A client that does not show them here has lost them for that user. 
+     * Confirm enrolment with a code from the authenticator
+     */
+    async confirmMfaEnrolment(requestParameters: ConfirmMfaEnrolmentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<RecoveryCodesResponse> {
+        const response = await this.confirmMfaEnrolmentRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Requires a current code — possession, not just a live session. Without that, anyone who borrowed an unlocked laptop could switch the factor off from a settings screen, which makes having it decorative. 
+     * Turn the second factor off
+     */
+    async disableMfaRaw(requestParameters: DisableMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
+        if (requestParameters['mfaCodeRequest'] == null) {
+            throw new runtime.RequiredError(
+                'mfaCodeRequest',
+                'Required parameter "mfaCodeRequest" was null or undefined when calling disableMfa().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/auth/mfa/disable`,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: MfaCodeRequestToJSON(requestParameters['mfaCodeRequest']),
+        }, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * Requires a current code — possession, not just a live session. Without that, anyone who borrowed an unlocked laptop could switch the factor off from a settings screen, which makes having it decorative. 
+     * Turn the second factor off
+     */
+    async disableMfa(requestParameters: DisableMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
+        await this.disableMfaRaw(requestParameters, initOverrides);
+    }
+
+    /**
      * The public half of the key used to sign access tokens, so that other services, an API gateway or a third-party integration can verify our tokens without holding any credential of their own.  The application itself does not call this endpoint — it verifies with the in-process public key rather than issuing an HTTP request to itself.  During a key rotation window this returns both the outgoing and incoming keys, so tokens signed with either continue to verify. 
      * Public JSON Web Key Set
      */
@@ -315,6 +569,42 @@ export class AuthenticationApi extends runtime.BaseAPI implements Authentication
      */
     async getJwks(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<JwkSet> {
         const response = await this.getJwksRaw(initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Drives the security settings screen: whether to offer enrolment, resume a half-finished one, or warn that recovery codes are running low. 
+     * Whether a second factor is enrolled
+     */
+    async getMfaStatusRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<MfaStatus>> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/auth/mfa`,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => MfaStatusFromJSON(jsonValue));
+    }
+
+    /**
+     * Drives the security settings screen: whether to offer enrolment, resume a half-finished one, or warn that recovery codes are running low. 
+     * Whether a second factor is enrolled
+     */
+    async getMfaStatus(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MfaStatus> {
+        const response = await this.getMfaStatusRaw(initOverrides);
         return await response.value();
     }
 
@@ -491,6 +781,52 @@ export class AuthenticationApi extends runtime.BaseAPI implements Authentication
     }
 
     /**
+     * Invalidates every existing code. Requires a current code, for the same reason as disabling. 
+     * Issue a fresh set of recovery codes
+     */
+    async regenerateRecoveryCodesRaw(requestParameters: RegenerateRecoveryCodesRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<RecoveryCodesResponse>> {
+        if (requestParameters['mfaCodeRequest'] == null) {
+            throw new runtime.RequiredError(
+                'mfaCodeRequest',
+                'Required parameter "mfaCodeRequest" was null or undefined when calling regenerateRecoveryCodes().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/auth/mfa/recovery-codes`,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: MfaCodeRequestToJSON(requestParameters['mfaCodeRequest']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => RecoveryCodesResponseFromJSON(jsonValue));
+    }
+
+    /**
+     * Invalidates every existing code. Requires a current code, for the same reason as disabling. 
+     * Issue a fresh set of recovery codes
+     */
+    async regenerateRecoveryCodes(requestParameters: RegenerateRecoveryCodesRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<RecoveryCodesResponse> {
+        const response = await this.regenerateRecoveryCodesRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
      * Registers or updates a device for the authenticated user, including its push token.  Called on sign-in and again whenever the push token rotates. Idempotent on `(user, deviceId)`: re-registering an existing device updates it rather than creating a duplicate. 
      * Register the current device
      */
@@ -625,6 +961,55 @@ export class AuthenticationApi extends runtime.BaseAPI implements Authentication
      */
     async revokeDevice(requestParameters: RevokeDeviceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
         await this.revokeDeviceRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * The second half of a password sign-in. Called after `/v1/auth/token` answers `401 MFA_REQUIRED` with an `mfaToken` in `details`.  Accepts either a TOTP code or a recovery code — the user cannot always tell you which they are holding, and making them choose adds a decision at the worst possible moment. A recovery code is consumed on use.  The challenge token goes in the **body**, not the `Authorization` header: it is not a bearer token for this API, and putting it there invites proxies and client libraries to treat it as one. It carries no roles and no employee id, so even if something did accept it as a session it would grant nothing.  Every failure — wrong code, spent recovery code, account without a second factor — returns the same `MFA_INVALID_CODE`. Distinguishing them would tell whoever holds the challenge which case they are in. 
+     * Complete a sign-in with a second factor
+     */
+    async verifyMfaRaw(requestParameters: VerifyMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<TokenResponse>> {
+        if (requestParameters['xTenantCode'] == null) {
+            throw new runtime.RequiredError(
+                'xTenantCode',
+                'Required parameter "xTenantCode" was null or undefined when calling verifyMfa().'
+            );
+        }
+
+        if (requestParameters['mfaVerifyRequest'] == null) {
+            throw new runtime.RequiredError(
+                'mfaVerifyRequest',
+                'Required parameter "mfaVerifyRequest" was null or undefined when calling verifyMfa().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (requestParameters['xTenantCode'] != null) {
+            headerParameters['X-Tenant-Code'] = String(requestParameters['xTenantCode']);
+        }
+
+        const response = await this.request({
+            path: `/v1/auth/mfa/verify`,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: MfaVerifyRequestToJSON(requestParameters['mfaVerifyRequest']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => TokenResponseFromJSON(jsonValue));
+    }
+
+    /**
+     * The second half of a password sign-in. Called after `/v1/auth/token` answers `401 MFA_REQUIRED` with an `mfaToken` in `details`.  Accepts either a TOTP code or a recovery code — the user cannot always tell you which they are holding, and making them choose adds a decision at the worst possible moment. A recovery code is consumed on use.  The challenge token goes in the **body**, not the `Authorization` header: it is not a bearer token for this API, and putting it there invites proxies and client libraries to treat it as one. It carries no roles and no employee id, so even if something did accept it as a session it would grant nothing.  Every failure — wrong code, spent recovery code, account without a second factor — returns the same `MFA_INVALID_CODE`. Distinguishing them would tell whoever holds the challenge which case they are in. 
+     * Complete a sign-in with a second factor
+     */
+    async verifyMfa(requestParameters: VerifyMfaRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<TokenResponse> {
+        const response = await this.verifyMfaRaw(requestParameters, initOverrides);
+        return await response.value();
     }
 
 }

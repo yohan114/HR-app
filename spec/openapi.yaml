@@ -318,6 +318,168 @@ paths:
         '204':
           description: Signed out
 
+  /v1/auth/mfa/verify:
+    post:
+      tags: [Authentication]
+      summary: Complete a sign-in with a second factor
+      description: |
+        The second half of a password sign-in. Called after `/v1/auth/token` answers
+        `401 MFA_REQUIRED` with an `mfaToken` in `details`.
+
+        Accepts either a TOTP code or a recovery code — the user cannot always tell you which they
+        are holding, and making them choose adds a decision at the worst possible moment. A
+        recovery code is consumed on use.
+
+        The challenge token goes in the **body**, not the `Authorization` header: it is not a
+        bearer token for this API, and putting it there invites proxies and client libraries to
+        treat it as one. It carries no roles and no employee id, so even if something did accept it
+        as a session it would grant nothing.
+
+        Every failure — wrong code, spent recovery code, account without a second factor — returns
+        the same `MFA_INVALID_CODE`. Distinguishing them would tell whoever holds the challenge
+        which case they are in.
+      operationId: verifyMfa
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TenantCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaVerifyRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/auth/mfa:
+    get:
+      tags: [Authentication]
+      summary: Whether a second factor is enrolled
+      description: |
+        Drives the security settings screen: whether to offer enrolment, resume a half-finished
+        one, or warn that recovery codes are running low.
+      operationId: getMfaStatus
+      responses:
+        '200':
+          description: Current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaStatus'
+
+  /v1/auth/mfa/enrol:
+    post:
+      tags: [Authentication]
+      summary: Begin enrolment — returns a secret and a QR payload
+      description: |
+        Issues a TOTP secret and the `otpauth://` URI an authenticator app reads from a QR code.
+        The secret is stored immediately but **MFA is not switched on** until
+        `/v1/auth/mfa/enrol/confirm` succeeds.
+
+        Two steps rather than one deliberately: a user who mis-scans, or scans into an app they
+        then delete, would otherwise lock themselves out of their own account with no route back
+        except an administrator — which is a support call and a social-engineering path straight
+        past the factor. Calling this again replaces the pending secret, which is what someone does
+        after scanning into the wrong app.
+      operationId: beginMfaEnrolment
+      responses:
+        '200':
+          description: Enrolment started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaEnrolment'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /v1/auth/mfa/enrol/confirm:
+    post:
+      tags: [Authentication]
+      summary: Confirm enrolment with a code from the authenticator
+      description: |
+        Proves the app and the server agree before anything depends on it, then switches MFA on.
+
+        **Returns the recovery codes, and this is the only time they exist in plaintext.** They are
+        stored as hashes, so neither the server nor a database backup can produce them again. A
+        client that does not show them here has lost them for that user.
+      operationId: confirmMfaEnrolment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaCodeRequest'
+      responses:
+        '200':
+          description: Enrolled — show these codes once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoveryCodesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/auth/mfa/disable:
+    post:
+      tags: [Authentication]
+      summary: Turn the second factor off
+      description: |
+        Requires a current code — possession, not just a live session. Without that, anyone who
+        borrowed an unlocked laptop could switch the factor off from a settings screen, which makes
+        having it decorative.
+      operationId: disableMfa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaCodeRequest'
+      responses:
+        '204':
+          description: Disabled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/auth/mfa/recovery-codes:
+    post:
+      tags: [Authentication]
+      summary: Issue a fresh set of recovery codes
+      description: |
+        Invalidates every existing code. Requires a current code, for the same reason as disabling.
+      operationId: regenerateRecoveryCodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaCodeRequest'
+      responses:
+        '200':
+          description: New codes — show these once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoveryCodesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /v1/auth/.well-known/jwks.json:
     get:
       tags: [Authentication]
@@ -1066,6 +1228,68 @@ components:
           type: string
           format: uuid
           description: The solid reporting line. Approval routing follows this and only this.
+
+    MfaVerifyRequest:
+      type: object
+      required: [mfaToken, code, device]
+      properties:
+        mfaToken:
+          type: string
+          description: From `details.mfaToken` on the `MFA_REQUIRED` response. Valid for five minutes.
+        code:
+          type: string
+          description: |
+            A six-digit code from the authenticator app, or a recovery code. Separators, spaces and
+            case are ignored — the user is retyping from paper or from a small screen.
+        device:
+          $ref: '#/components/schemas/DeviceInfo'
+
+    MfaCodeRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: A current TOTP code, or a recovery code.
+
+    MfaEnrolment:
+      type: object
+      required: [secret, provisioningUri]
+      properties:
+        secret:
+          type: string
+          description: |
+            Base32, 160 bits. Show it as text beneath the QR code — a user whose camera will not
+            focus needs to be able to type it in.
+        provisioningUri:
+          type: string
+          description: |
+            `otpauth://totp/...` — render as a QR code. Carries the issuer twice, as a label prefix
+            and as a parameter, because authenticator apps disagree about which they read and an
+            unlabelled entry in a list of thirty accounts is unidentifiable.
+
+    MfaStatus:
+      type: object
+      required: [enabled, enrolmentPending, recoveryCodesRemaining]
+      properties:
+        enabled: { type: boolean }
+        enrolmentPending:
+          type: boolean
+          description: A secret has been issued but not yet confirmed.
+        recoveryCodesRemaining:
+          type: integer
+          description: Prompt the user to regenerate as this approaches zero.
+
+    RecoveryCodesResponse:
+      type: object
+      required: [recoveryCodes]
+      properties:
+        recoveryCodes:
+          type: array
+          description: |
+            Shown **once**. Stored only as hashes, so they cannot be retrieved again — a client
+            that does not display them here has lost them for that user.
+          items: { type: string }
 
     EmployeeProfile:
       type: object

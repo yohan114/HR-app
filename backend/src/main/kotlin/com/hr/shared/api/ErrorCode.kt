@@ -21,6 +21,13 @@ object ErrorCode {
     const val TOKEN_INVALID = "TOKEN_INVALID"
     const val TOKEN_REUSE_DETECTED = "TOKEN_REUSE_DETECTED"
     const val MFA_REQUIRED = "MFA_REQUIRED"
+
+    /**
+     * Covers a wrong TOTP code, a wrong recovery code, and a challenge presented for an account
+     * with no second factor. Deliberately one code: distinguishing them would tell the holder of a
+     * challenge token which of those they are looking at.
+     */
+    const val MFA_INVALID_CODE = "MFA_INVALID_CODE"
     const val STEP_UP_REQUIRED = "STEP_UP_REQUIRED"
 
     // 403

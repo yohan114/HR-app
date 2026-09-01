@@ -80,6 +80,44 @@ class TokenService(
     }
 
     /**
+     * A short-lived token proving the password step succeeded, pending a second factor.
+     *
+     * Deliberately **not** an access token with a flag. It carries no roles and no employee id, so
+     * a bug that accepted it as a session would grant nothing: `PermissionExpandingJwtConverter`
+     * resolves authorities from the subject, and every endpoint worth protecting requires one. The
+     * `purpose` claim is checked explicitly at `/v1/auth/mfa/verify` rather than relied upon.
+     *
+     * Five minutes. Long enough to open an authenticator app and read a code, short enough that a
+     * token captured from a log or a crash report is worthless by the time anyone looks. It is not
+     * revocable and does not need to be — it is useless without a valid TOTP code, which is the
+     * whole point of the second factor.
+     */
+    fun issueMfaChallengeToken(userId: UUID): IssuedAccessToken {
+        val now = Instant.now()
+        val expiresAt = now.plus(MFA_CHALLENGE_TTL)
+
+        val claims =
+            JwtClaimsSet.builder()
+                .issuer(issuer)
+                .issuedAt(now)
+                .expiresAt(expiresAt)
+                .subject(userId.toString())
+                .id(UUID.randomUUID().toString())
+                .claim(CLAIM_TENANT_ID, TenantContext.currentId().toString())
+                .claim(CLAIM_PURPOSE, PURPOSE_MFA)
+                .build()
+
+        val header = JwsHeader.with { "RS256" }.keyId(rsaKey.keyID).build()
+        val jwt = jwtEncoder.encode(JwtEncoderParameters.from(header, claims))
+
+        return IssuedAccessToken(
+            value = jwt.tokenValue,
+            expiresAt = expiresAt,
+            expiresInSeconds = MFA_CHALLENGE_TTL.seconds,
+        )
+    }
+
+    /**
      * Generates a refresh token secret and its storage hash.
      *
      * 256 bits from a CSPRNG. The plaintext is returned to the caller once and never persisted;
@@ -108,7 +146,12 @@ class TokenService(
         const val CLAIM_ROLES = "roles"
         const val CLAIM_AUTH_METHOD = "auth_method"
 
+        /** Distinguishes a challenge token from a session token. Checked, never assumed. */
+        const val CLAIM_PURPOSE = "purpose"
+        const val PURPOSE_MFA = "mfa"
+
         private const val REFRESH_TOKEN_BYTES = 32
+        private val MFA_CHALLENGE_TTL: Duration = Duration.ofMinutes(5)
     }
 }
 

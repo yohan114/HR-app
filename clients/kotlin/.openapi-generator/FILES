@@ -48,7 +48,12 @@ src/main/kotlin/com/hr/client/model/FormSection.kt
 src/main/kotlin/com/hr/client/model/Jwk.kt
 src/main/kotlin/com/hr/client/model/JwkSet.kt
 src/main/kotlin/com/hr/client/model/MeResponse.kt
+src/main/kotlin/com/hr/client/model/MfaCodeRequest.kt
+src/main/kotlin/com/hr/client/model/MfaEnrolment.kt
+src/main/kotlin/com/hr/client/model/MfaStatus.kt
+src/main/kotlin/com/hr/client/model/MfaVerifyRequest.kt
 src/main/kotlin/com/hr/client/model/PasswordGrantRequest.kt
+src/main/kotlin/com/hr/client/model/RecoveryCodesResponse.kt
 src/main/kotlin/com/hr/client/model/ReferenceItem.kt
 src/main/kotlin/com/hr/client/model/RefreshTokenRequest.kt
 src/main/kotlin/com/hr/client/model/RegisterDeviceRequest.kt

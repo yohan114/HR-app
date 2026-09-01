@@ -11,7 +11,12 @@ import com.hr.client.model.ApiErrorResponse
 import com.hr.client.model.BiometricGrantRequest
 import com.hr.client.model.Device
 import com.hr.client.model.JwkSet
+import com.hr.client.model.MfaCodeRequest
+import com.hr.client.model.MfaEnrolment
+import com.hr.client.model.MfaStatus
+import com.hr.client.model.MfaVerifyRequest
 import com.hr.client.model.PasswordGrantRequest
+import com.hr.client.model.RecoveryCodesResponse
 import com.hr.client.model.RefreshTokenRequest
 import com.hr.client.model.RegisterDeviceRequest
 import com.hr.client.model.ResolveTenantRequest
@@ -19,6 +24,19 @@ import com.hr.client.model.ResolveTenantResponse
 import com.hr.client.model.TokenResponse
 
 interface AuthenticationApi {
+    /**
+     * POST v1/auth/mfa/enrol
+     * Begin enrolment — returns a secret and a QR payload
+     * Issues a TOTP secret and the &#x60;otpauth://&#x60; URI an authenticator app reads from a QR code. The secret is stored immediately but **MFA is not switched on** until &#x60;/v1/auth/mfa/enrol/confirm&#x60; succeeds.  Two steps rather than one deliberately: a user who mis-scans, or scans into an app they then delete, would otherwise lock themselves out of their own account with no route back except an administrator — which is a support call and a social-engineering path straight past the factor. Calling this again replaces the pending secret, which is what someone does after scanning into the wrong app. 
+     * Responses:
+     *  - 200: Enrolment started
+     *  - 422: Syntactically valid but rejected by a domain rule. `details.violations` lists **every** problem, not just the first — reporting one at a time turns filling a form into a guessing game. 
+     *
+     * @return [MfaEnrolment]
+     */
+    @POST("v1/auth/mfa/enrol")
+    suspend fun beginMfaEnrolment(): Response<MfaEnrolment>
+
     /**
      * POST v1/auth/token/biometric
      * Exchange a device-sealed refresh token after a biometric assertion
@@ -36,6 +54,37 @@ interface AuthenticationApi {
     suspend fun biometricToken(@Header("X-Tenant-Code") xTenantCode: kotlin.String, @Body biometricGrantRequest: BiometricGrantRequest): Response<TokenResponse>
 
     /**
+     * POST v1/auth/mfa/enrol/confirm
+     * Confirm enrolment with a code from the authenticator
+     * Proves the app and the server agree before anything depends on it, then switches MFA on.  **Returns the recovery codes, and this is the only time they exist in plaintext.** They are stored as hashes, so neither the server nor a database backup can produce them again. A client that does not show them here has lost them for that user. 
+     * Responses:
+     *  - 200: Enrolled — show these codes once
+     *  - 401: Authentication required or token invalid
+     *  - 422: Syntactically valid but rejected by a domain rule. `details.violations` lists **every** problem, not just the first — reporting one at a time turns filling a form into a guessing game. 
+     *  - 429: Too many requests
+     *
+     * @param mfaCodeRequest 
+     * @return [RecoveryCodesResponse]
+     */
+    @POST("v1/auth/mfa/enrol/confirm")
+    suspend fun confirmMfaEnrolment(@Body mfaCodeRequest: MfaCodeRequest): Response<RecoveryCodesResponse>
+
+    /**
+     * POST v1/auth/mfa/disable
+     * Turn the second factor off
+     * Requires a current code — possession, not just a live session. Without that, anyone who borrowed an unlocked laptop could switch the factor off from a settings screen, which makes having it decorative. 
+     * Responses:
+     *  - 204: Disabled
+     *  - 401: Authentication required or token invalid
+     *  - 429: Too many requests
+     *
+     * @param mfaCodeRequest 
+     * @return [Unit]
+     */
+    @POST("v1/auth/mfa/disable")
+    suspend fun disableMfa(@Body mfaCodeRequest: MfaCodeRequest): Response<Unit>
+
+    /**
      * GET v1/auth/.well-known/jwks.json
      * Public JSON Web Key Set
      * The public half of the key used to sign access tokens, so that other services, an API gateway or a third-party integration can verify our tokens without holding any credential of their own.  The application itself does not call this endpoint — it verifies with the in-process public key rather than issuing an HTTP request to itself.  During a key rotation window this returns both the outgoing and incoming keys, so tokens signed with either continue to verify. 
@@ -46,6 +95,18 @@ interface AuthenticationApi {
      */
     @GET("v1/auth/.well-known/jwks.json")
     suspend fun getJwks(): Response<JwkSet>
+
+    /**
+     * GET v1/auth/mfa
+     * Whether a second factor is enrolled
+     * Drives the security settings screen: whether to offer enrolment, resume a half-finished one, or warn that recovery codes are running low. 
+     * Responses:
+     *  - 200: Current state
+     *
+     * @return [MfaStatus]
+     */
+    @GET("v1/auth/mfa")
+    suspend fun getMfaStatus(): Response<MfaStatus>
 
     /**
      * POST v1/auth/token
@@ -105,6 +166,21 @@ interface AuthenticationApi {
     suspend fun refreshToken(@Header("X-Tenant-Code") xTenantCode: kotlin.String, @Body refreshTokenRequest: RefreshTokenRequest): Response<TokenResponse>
 
     /**
+     * POST v1/auth/mfa/recovery-codes
+     * Issue a fresh set of recovery codes
+     * Invalidates every existing code. Requires a current code, for the same reason as disabling. 
+     * Responses:
+     *  - 200: New codes — show these once
+     *  - 401: Authentication required or token invalid
+     *  - 429: Too many requests
+     *
+     * @param mfaCodeRequest 
+     * @return [RecoveryCodesResponse]
+     */
+    @POST("v1/auth/mfa/recovery-codes")
+    suspend fun regenerateRecoveryCodes(@Body mfaCodeRequest: MfaCodeRequest): Response<RecoveryCodesResponse>
+
+    /**
      * POST v1/auth/devices
      * Register the current device
      * Registers or updates a device for the authenticated user, including its push token.  Called on sign-in and again whenever the push token rotates. Idempotent on &#x60;(user, deviceId)&#x60;: re-registering an existing device updates it rather than creating a duplicate. 
@@ -146,5 +222,21 @@ interface AuthenticationApi {
      */
     @DELETE("v1/auth/devices/{id}")
     suspend fun revokeDevice(@Path("id") id: java.util.UUID): Response<Unit>
+
+    /**
+     * POST v1/auth/mfa/verify
+     * Complete a sign-in with a second factor
+     * The second half of a password sign-in. Called after &#x60;/v1/auth/token&#x60; answers &#x60;401 MFA_REQUIRED&#x60; with an &#x60;mfaToken&#x60; in &#x60;details&#x60;.  Accepts either a TOTP code or a recovery code — the user cannot always tell you which they are holding, and making them choose adds a decision at the worst possible moment. A recovery code is consumed on use.  The challenge token goes in the **body**, not the &#x60;Authorization&#x60; header: it is not a bearer token for this API, and putting it there invites proxies and client libraries to treat it as one. It carries no roles and no employee id, so even if something did accept it as a session it would grant nothing.  Every failure — wrong code, spent recovery code, account without a second factor — returns the same &#x60;MFA_INVALID_CODE&#x60;. Distinguishing them would tell whoever holds the challenge which case they are in. 
+     * Responses:
+     *  - 200: Authenticated
+     *  - 401: Authentication required or token invalid
+     *  - 429: Too many requests
+     *
+     * @param xTenantCode Organisation code. Required on unauthenticated endpoints, where no token exists yet.
+     * @param mfaVerifyRequest 
+     * @return [TokenResponse]
+     */
+    @POST("v1/auth/mfa/verify")
+    suspend fun verifyMfa(@Header("X-Tenant-Code") xTenantCode: kotlin.String, @Body mfaVerifyRequest: MfaVerifyRequest): Response<TokenResponse>
 
 }

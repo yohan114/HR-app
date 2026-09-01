@@ -47,6 +47,12 @@ class SecurityConfig {
                         "/v1/auth/token/refresh",
                         "/v1/auth/token/biometric",
                         "/v1/auth/logout",
+                        // The second half of a password sign-in. Its caller holds an MFA challenge
+                        // token and no session, because the password step deliberately issued
+                        // none. The challenge is validated inside the handler, where the `purpose`
+                        // claim can be checked — a filter here would accept any valid JWT, which
+                        // would let an existing session mint a new one without a second factor.
+                        "/v1/auth/mfa/verify",
                     ).permitAll()
                     .requestMatchers(HttpMethod.GET, "/v1/auth/.well-known/jwks.json").permitAll()
                     .requestMatchers("/v1/public/**").permitAll()

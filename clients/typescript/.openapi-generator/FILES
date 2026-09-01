@@ -25,7 +25,12 @@ models/FormSection.ts
 models/Jwk.ts
 models/JwkSet.ts
 models/MeResponse.ts
+models/MfaCodeRequest.ts
+models/MfaEnrolment.ts
+models/MfaStatus.ts
+models/MfaVerifyRequest.ts
 models/PasswordGrantRequest.ts
+models/RecoveryCodesResponse.ts
 models/ReferenceItem.ts
 models/RefreshTokenRequest.ts
 models/RegisterDeviceRequest.ts

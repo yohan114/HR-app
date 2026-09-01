@@ -13,6 +13,43 @@ import AnyCodable
 open class AuthenticationAPI {
 
     /**
+     Begin enrolment — returns a secret and a QR payload
+     
+     - returns: MfaEnrolment
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func beginMfaEnrolment() async throws -> MfaEnrolment {
+        return try await beginMfaEnrolmentWithRequestBuilder().execute().body
+    }
+
+    /**
+     Begin enrolment — returns a secret and a QR payload
+     - POST /v1/auth/mfa/enrol
+     - Issues a TOTP secret and the `otpauth://` URI an authenticator app reads from a QR code. The secret is stored immediately but **MFA is not switched on** until `/v1/auth/mfa/enrol/confirm` succeeds.  Two steps rather than one deliberately: a user who mis-scans, or scans into an app they then delete, would otherwise lock themselves out of their own account with no route back except an administrator — which is a support call and a social-engineering path straight past the factor. Calling this again replaces the pending secret, which is what someone does after scanning into the wrong app. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - returns: RequestBuilder<MfaEnrolment> 
+     */
+    open class func beginMfaEnrolmentWithRequestBuilder() -> RequestBuilder<MfaEnrolment> {
+        let localVariablePath = "/v1/auth/mfa/enrol"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters: [String: Any]? = nil
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            :
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<MfaEnrolment>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "POST", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
      Exchange a device-sealed refresh token after a biometric assertion
      
      - parameter xTenantCode: (header) Organisation code. Required on unauthenticated endpoints, where no token exists yet. 
@@ -52,6 +89,84 @@ open class AuthenticationAPI {
     }
 
     /**
+     Confirm enrolment with a code from the authenticator
+     
+     - parameter mfaCodeRequest: (body)  
+     - returns: RecoveryCodesResponse
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func confirmMfaEnrolment(mfaCodeRequest: MfaCodeRequest) async throws -> RecoveryCodesResponse {
+        return try await confirmMfaEnrolmentWithRequestBuilder(mfaCodeRequest: mfaCodeRequest).execute().body
+    }
+
+    /**
+     Confirm enrolment with a code from the authenticator
+     - POST /v1/auth/mfa/enrol/confirm
+     - Proves the app and the server agree before anything depends on it, then switches MFA on.  **Returns the recovery codes, and this is the only time they exist in plaintext.** They are stored as hashes, so neither the server nor a database backup can produce them again. A client that does not show them here has lost them for that user. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - parameter mfaCodeRequest: (body)  
+     - returns: RequestBuilder<RecoveryCodesResponse> 
+     */
+    open class func confirmMfaEnrolmentWithRequestBuilder(mfaCodeRequest: MfaCodeRequest) -> RequestBuilder<RecoveryCodesResponse> {
+        let localVariablePath = "/v1/auth/mfa/enrol/confirm"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters = JSONEncodingHelper.encodingParameters(forEncodableObject: mfaCodeRequest)
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            "Content-Type": "application/json",
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<RecoveryCodesResponse>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "POST", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
+     Turn the second factor off
+     
+     - parameter mfaCodeRequest: (body)  
+     - returns: Void
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func disableMfa(mfaCodeRequest: MfaCodeRequest) async throws {
+        return try await disableMfaWithRequestBuilder(mfaCodeRequest: mfaCodeRequest).execute().body
+    }
+
+    /**
+     Turn the second factor off
+     - POST /v1/auth/mfa/disable
+     - Requires a current code — possession, not just a live session. Without that, anyone who borrowed an unlocked laptop could switch the factor off from a settings screen, which makes having it decorative. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - parameter mfaCodeRequest: (body)  
+     - returns: RequestBuilder<Void> 
+     */
+    open class func disableMfaWithRequestBuilder(mfaCodeRequest: MfaCodeRequest) -> RequestBuilder<Void> {
+        let localVariablePath = "/v1/auth/mfa/disable"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters = JSONEncodingHelper.encodingParameters(forEncodableObject: mfaCodeRequest)
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            "Content-Type": "application/json",
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<Void>.Type = HRClientAPI.requestBuilderFactory.getNonDecodableBuilder()
+
+        return localVariableRequestBuilder.init(method: "POST", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
      Public JSON Web Key Set
      
      - returns: JwkSet
@@ -83,6 +198,43 @@ open class AuthenticationAPI {
         let localVariableRequestBuilder: RequestBuilder<JwkSet>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
 
         return localVariableRequestBuilder.init(method: "GET", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: false)
+    }
+
+    /**
+     Whether a second factor is enrolled
+     
+     - returns: MfaStatus
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func getMfaStatus() async throws -> MfaStatus {
+        return try await getMfaStatusWithRequestBuilder().execute().body
+    }
+
+    /**
+     Whether a second factor is enrolled
+     - GET /v1/auth/mfa
+     - Drives the security settings screen: whether to offer enrolment, resume a half-finished one, or warn that recovery codes are running low. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - returns: RequestBuilder<MfaStatus> 
+     */
+    open class func getMfaStatusWithRequestBuilder() -> RequestBuilder<MfaStatus> {
+        let localVariablePath = "/v1/auth/mfa"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters: [String: Any]? = nil
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            :
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<MfaStatus>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "GET", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
     }
 
     /**
@@ -240,6 +392,45 @@ open class AuthenticationAPI {
     }
 
     /**
+     Issue a fresh set of recovery codes
+     
+     - parameter mfaCodeRequest: (body)  
+     - returns: RecoveryCodesResponse
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func regenerateRecoveryCodes(mfaCodeRequest: MfaCodeRequest) async throws -> RecoveryCodesResponse {
+        return try await regenerateRecoveryCodesWithRequestBuilder(mfaCodeRequest: mfaCodeRequest).execute().body
+    }
+
+    /**
+     Issue a fresh set of recovery codes
+     - POST /v1/auth/mfa/recovery-codes
+     - Invalidates every existing code. Requires a current code, for the same reason as disabling. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - parameter mfaCodeRequest: (body)  
+     - returns: RequestBuilder<RecoveryCodesResponse> 
+     */
+    open class func regenerateRecoveryCodesWithRequestBuilder(mfaCodeRequest: MfaCodeRequest) -> RequestBuilder<RecoveryCodesResponse> {
+        let localVariablePath = "/v1/auth/mfa/recovery-codes"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters = JSONEncodingHelper.encodingParameters(forEncodableObject: mfaCodeRequest)
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            "Content-Type": "application/json",
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<RecoveryCodesResponse>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "POST", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
      Register the current device
      
      - parameter registerDeviceRequest: (body)  
@@ -357,5 +548,44 @@ open class AuthenticationAPI {
         let localVariableRequestBuilder: RequestBuilder<Void>.Type = HRClientAPI.requestBuilderFactory.getNonDecodableBuilder()
 
         return localVariableRequestBuilder.init(method: "DELETE", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
+     Complete a sign-in with a second factor
+     
+     - parameter xTenantCode: (header) Organisation code. Required on unauthenticated endpoints, where no token exists yet. 
+     - parameter mfaVerifyRequest: (body)  
+     - returns: TokenResponse
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func verifyMfa(xTenantCode: String, mfaVerifyRequest: MfaVerifyRequest) async throws -> TokenResponse {
+        return try await verifyMfaWithRequestBuilder(xTenantCode: xTenantCode, mfaVerifyRequest: mfaVerifyRequest).execute().body
+    }
+
+    /**
+     Complete a sign-in with a second factor
+     - POST /v1/auth/mfa/verify
+     - The second half of a password sign-in. Called after `/v1/auth/token` answers `401 MFA_REQUIRED` with an `mfaToken` in `details`.  Accepts either a TOTP code or a recovery code — the user cannot always tell you which they are holding, and making them choose adds a decision at the worst possible moment. A recovery code is consumed on use.  The challenge token goes in the **body**, not the `Authorization` header: it is not a bearer token for this API, and putting it there invites proxies and client libraries to treat it as one. It carries no roles and no employee id, so even if something did accept it as a session it would grant nothing.  Every failure — wrong code, spent recovery code, account without a second factor — returns the same `MFA_INVALID_CODE`. Distinguishing them would tell whoever holds the challenge which case they are in. 
+     - parameter xTenantCode: (header) Organisation code. Required on unauthenticated endpoints, where no token exists yet. 
+     - parameter mfaVerifyRequest: (body)  
+     - returns: RequestBuilder<TokenResponse> 
+     */
+    open class func verifyMfaWithRequestBuilder(xTenantCode: String, mfaVerifyRequest: MfaVerifyRequest) -> RequestBuilder<TokenResponse> {
+        let localVariablePath = "/v1/auth/mfa/verify"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters = JSONEncodingHelper.encodingParameters(forEncodableObject: mfaVerifyRequest)
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            "Content-Type": "application/json",
+            "X-Tenant-Code": xTenantCode.encodeToJSON(),
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<TokenResponse>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "POST", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: false)
     }
 }

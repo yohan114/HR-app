@@ -50,6 +50,17 @@ class AppUser(
     @Column(name = "mfa_secret_enc")
     var mfaSecretEnc: String? = null
 
+    /**
+     * Remaining single-use recovery codes, as a newline-separated list of SHA-256 hashes,
+     * encrypted at rest.
+     *
+     * Newline-separated rather than JSON because the value is opaque to everything except
+     * `MfaService` — a JSON array here would invite someone to query into it, which is exactly
+     * what the encryption exists to prevent.
+     */
+    @Column(name = "mfa_recovery_codes_enc")
+    var mfaRecoveryCodesEnc: String? = null
+
     @Column(name = "last_login_at")
     var lastLoginAt: Instant? = null
 

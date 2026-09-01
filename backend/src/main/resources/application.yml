@@ -102,3 +102,13 @@ hr:
     # again. Matches the refresh token lifetime by design.
     biometric-reauth-after: P30D
     step-up-validity: PT5M
+    # Shown in authenticator apps as the account issuer. Per-deployment, because a user with
+    # accounts in two tenants otherwise sees two indistinguishable "HR" entries.
+    issuer-name: ${MFA_ISSUER_NAME:HR}
+
+  crypto:
+    # AES-256 key for encrypted columns — TOTP secrets, bank account numbers, identity documents.
+    # Base64 of 32 bytes. Intentionally has no default: the application refuses to start without
+    # one rather than failing later on the first row that needs it, and a default here would
+    # certainly reach production. Generate with FieldCipher.generateKey().
+    field-key: ${FIELD_ENCRYPTION_KEY:}

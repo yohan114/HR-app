@@ -464,6 +464,60 @@ compiled.
 
 ---
 
+## MFA (P1-BE-28) — TOTP, recovery codes, column encryption
+
+The first Phase 1 feature built end to end since the review, and the one where correctness could
+actually be *proven* rather than argued.
+
+**TOTP is verified against RFC 6238's published test vectors.** Six known secrets, times and
+expected codes; an implementation that matches them is right. Written rather than pulled in: the
+algorithm is forty lines, and a dependency in the authentication path is a supply-chain surface in
+the place it costs most. SHA-1 / 30s / 6 digits are not preferences — they are what Google
+Authenticator, 1Password and Authy actually implement, and choosing SHA-256 would mean codes that
+silently fail to match in most apps.
+
+**Enrolment is two steps**, and that is not ceremony. `begin` issues a secret and a QR payload;
+`confirm` requires a working code before MFA is switched on. Enabling it in one step lets a user
+who mis-scans lock themselves out of their own account, with no route back except an administrator
+— a support call and a social-engineering path straight past the factor.
+
+**Recovery codes are single-use and hashed with SHA-256, not Argon2.** Deliberate: Argon2 exists to
+make low-entropy secrets expensive to guess, and these are 100 bits from a CSPRNG. A slow hash
+would buy nothing and cost something real — verification must try every unused code, so ten Argon2
+verifications per attempt is a denial-of-service lever. The alphabet excludes `I`, `L`, `O`, `U`,
+`0` and `1`, because these get read off paper by someone who has just lost their phone.
+
+**`FieldCipher`** — AES-256-GCM column encryption, in `shared` because `employee_bank_account` and
+identity documents need the same. Deliberately non-deterministic: equal plaintexts must not produce
+equal ciphertexts, or the column leaks equality — anyone with read access could tell which
+employees share a bank account without decrypting anything. The cost is that these columns cannot
+be indexed or joined on, which is correct; a column you can search is one you have not protected.
+Values carry a `v1:` prefix so a key rotation can decrypt old values while writing new ones.
+
+Decisions worth knowing:
+
+- **The challenge token is not an access token with a flag.** It carries no roles and no employee
+  id, so a bug that accepted it as a session would grant nothing. The `purpose` claim is checked
+  explicitly at `/verify` — without that, an ordinary access token would satisfy the endpoint, and
+  anyone already signed in could mint a second session without a second factor.
+- **It travels in the body, not the `Authorization` header.** It is not a bearer token for this
+  API, and putting it there invites proxies and client libraries to treat it as one.
+- **A successful password with MFA pending does not update `last_login_at`.** Recording it would
+  make "last signed in" mean "last typed the right password" — exactly the event a user checks that
+  field to detect.
+- **Every verification failure returns one code.** Wrong TOTP, spent recovery code, account with no
+  second factor: distinguishing them tells whoever holds the challenge which case they are in.
+- **Disabling requires a current code.** Otherwise someone with a borrowed unlocked laptop turns
+  the factor off from a settings screen, and having it is decorative.
+
+**54 new tests**, all passing: 24 TOTP (including all six RFC vectors), 10 cipher, 20 service.
+`ApiContractTest` caught all six new endpoints as undocumented on the first run, as designed. All
+three clients regenerate with the MFA models.
+
+Not built: SMS as a second channel (P1-BE-29), and the client screens.
+
+---
+
 ## Adversarial review: 30 confirmed defects
 
 Five reviewers over the Phase 1 backend — authorisation, SQL, the write path, the client contract,

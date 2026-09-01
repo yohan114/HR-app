@@ -15,6 +15,15 @@ spring:
       hibernate:
         format_sql: true
 
+hr:
+  crypto:
+    # A fixed key for local development, so encrypted columns survive a restart and the demo data
+    # stays readable. Committed deliberately and safe to commit: it protects nothing real, and the
+    # `local` profile cannot be enabled in a deployed environment. Every other profile requires
+    # FIELD_ENCRYPTION_KEY and refuses to start without it.
+    # Decodes to exactly 32 bytes: "local-dev-only-key-not-for-prod!"
+    field-key: bG9jYWwtZGV2LW9ubHkta2V5LW5vdC1mb3ItcHJvZCE=
+
 logging:
   level:
     com.hr: DEBUG

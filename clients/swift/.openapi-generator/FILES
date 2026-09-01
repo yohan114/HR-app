@@ -37,7 +37,12 @@ Sources/HRClient/Models/FormSection.swift
 Sources/HRClient/Models/Jwk.swift
 Sources/HRClient/Models/JwkSet.swift
 Sources/HRClient/Models/MeResponse.swift
+Sources/HRClient/Models/MfaCodeRequest.swift
+Sources/HRClient/Models/MfaEnrolment.swift
+Sources/HRClient/Models/MfaStatus.swift
+Sources/HRClient/Models/MfaVerifyRequest.swift
 Sources/HRClient/Models/PasswordGrantRequest.swift
+Sources/HRClient/Models/RecoveryCodesResponse.swift
 Sources/HRClient/Models/ReferenceItem.swift
 Sources/HRClient/Models/RefreshTokenRequest.swift
 Sources/HRClient/Models/RegisterDeviceRequest.swift
