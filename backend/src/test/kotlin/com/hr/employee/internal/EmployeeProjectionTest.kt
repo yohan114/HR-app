@@ -61,6 +61,46 @@ class EmployeeProjectionTest {
         }
 
         /**
+         * A built-in field has a declared wire type, and `••••` is not a `LocalDate`. The
+         * generated Kotlin model types `dateOfBirth` as `LocalDate` and Swift as `Date`, and
+         * kotlinx aborts decoding of the *entire response* on a mismatch — so one masked date
+         * would blank the whole profile on both mobile clients.
+         *
+         * Hiding is the correct degradation: strictly more restrictive, and a fully-masked date
+         * conveyed nothing beyond its own existence.
+         */
+        @Test
+        fun `a typed field is hidden rather than masked into a type violation`() {
+            val payload = project(access = mapOf("dateOfBirth" to FieldAccess.MASKED))
+
+            assertThat(payload).doesNotContainKey("dateOfBirth")
+        }
+
+        @Test
+        fun `a uuid field is hidden rather than masked`() {
+            val employee = employee().apply { departmentId = UUID.randomUUID() }
+            val payload = project(employee, mapOf("departmentId" to FieldAccess.MASKED))
+
+            assertThat(payload).doesNotContainKey("departmentId")
+        }
+
+        /** An address is declared `additionalProperties: true`, so a masked map still fits. */
+        @Test
+        fun `a free-form object is still masked rather than hidden`() {
+            val employee =
+                employee().apply {
+                    permanentAddress = mutableMapOf("line1" to "42 Galle Road", "city" to "Colombo")
+                }
+
+            val payload = project(employee, mapOf("permanentAddress" to FieldAccess.MASKED))
+
+            @Suppress("UNCHECKED_CAST")
+            val address = payload["permanentAddress"] as Map<String, Any?>
+            assertThat(address.keys).containsExactlyInAnyOrder("line1", "city")
+            assertThat(address.values).allSatisfy { assertThat(it).isEqualTo("••••") }
+        }
+
+        /**
          * The whole point of masking is that the true value never leaves the
          * process. If the real number is in the payload and the client renders
          * dots, it is still in the HTTP cache, the client database and any log

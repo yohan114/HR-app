@@ -150,7 +150,10 @@ class CustomFieldValidator {
     ): List<FieldViolation> {
         val number =
             when (value) {
-                is Number -> BigDecimal(value.toString())
+                // `runCatching` because a JSON literal outside Double's range parses to
+                // `Infinity` or `NaN`, and `BigDecimal("Infinity")` throws — turning a malformed
+                // field value into a 500 rather than a violation naming the field.
+                is Number -> runCatching { BigDecimal(value.toString()) }.getOrNull()
                 is String -> value.toBigDecimalOrNull()
                 else -> null
             } ?: return listOf(wrongType(definition, "number", value))

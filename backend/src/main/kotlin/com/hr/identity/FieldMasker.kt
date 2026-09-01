@@ -50,6 +50,32 @@ object FieldMasker {
     /** No whitespace, one `@`, a dotted domain. Deliberately stricter than "contains an @". */
     private val EMAIL_LIKE = Regex("""[^\s@]+@[^\s@.]+(\.[^\s@.]+)+""")
 
+    /**
+     * Whether masking [value] produces something its declared wire type still accepts.
+     *
+     * The mask is the string `••••`. That is fine for a field the API declares as a string, and a
+     * contract violation for one declared as a date, a uuid or a number — and not a harmless one:
+     * the generated Kotlin model types `dateOfBirth` as `LocalDate` and the Swift model as `Date`,
+     * and kotlinx aborts decoding of the **entire response** on a type mismatch. A single masked
+     * date would blank the whole profile on both mobile clients.
+     *
+     * So a field that cannot be masked without lying about its type is hidden instead. That is
+     * strictly more restrictive, and it costs almost nothing: a fully-masked date already conveys
+     * only that a value exists.
+     *
+     * Free-form maps and lists are maskable because the schema declares them
+     * `additionalProperties: true` — there is no element type to violate.
+     */
+    fun canMask(value: Any?): Boolean =
+        when (value) {
+            null -> true
+            is String -> true
+            is Map<*, *> -> value.values.all(::canMask)
+            is Collection<*> -> value.all(::canMask)
+            // LocalDate, UUID, Number, Boolean and anything else with a declared non-string type.
+            else -> false
+        }
+
     fun mask(value: Any?): Any? =
         when (value) {
             null -> null

@@ -245,6 +245,74 @@ class EmployeeWriterTest {
             }
         }
 
+        /**
+         * A cleared custom field belongs inside `customFields`, not at the top level. Before this,
+         * `clearFields: ["tshirtSize"]` produced a top-level `tshirtSize: null` — not in SETTERS —
+         * so clearing any tenant-defined field came back `400 UNKNOWN_FIELD`, and there was no way
+         * to clear one at all.
+         */
+        @Test
+        fun `a custom field is cleared inside customFields, not at the top level`() {
+            val expanded =
+                writer.expandClearFields(
+                    mapOf("clearFields" to listOf("tshirtSize")),
+                    customFieldKeys = setOf("tshirtSize"),
+                )
+
+            assertThat(expanded).doesNotContainKey("tshirtSize")
+
+            @Suppress("UNCHECKED_CAST")
+            val custom = expanded["customFields"] as Map<String, Any?>
+            assertThat(custom).containsEntry("tshirtSize", null)
+        }
+
+        @Test
+        fun `built-in and custom fields can be cleared in the same request`() {
+            val expanded =
+                writer.expandClearFields(
+                    mapOf("clearFields" to listOf("middleName", "tshirtSize")),
+                    customFieldKeys = setOf("tshirtSize"),
+                )
+
+            assertThat(expanded).containsEntry("middleName", null)
+
+            @Suppress("UNCHECKED_CAST")
+            val custom = expanded["customFields"] as Map<String, Any?>
+            assertThat(custom).containsEntry("tshirtSize", null)
+        }
+
+        @Test
+        fun `clearing a custom field preserves others set in the same request`() {
+            val expanded =
+                writer.expandClearFields(
+                    mapOf(
+                        "customFields" to mapOf("shoeSize" to "42"),
+                        "clearFields" to listOf("tshirtSize"),
+                    ),
+                    customFieldKeys = setOf("tshirtSize", "shoeSize"),
+                )
+
+            @Suppress("UNCHECKED_CAST")
+            val custom = expanded["customFields"] as Map<String, Any?>
+            assertThat(custom).containsEntry("shoeSize", "42").containsEntry("tshirtSize", null)
+        }
+
+        /** The contradiction check has to see inside `customFields` too. */
+        @Test
+        fun `a custom field both set and cleared is rejected`() {
+            assertThatThrownBy {
+                writer.expandClearFields(
+                    mapOf(
+                        "customFields" to mapOf("tshirtSize" to "L"),
+                        "clearFields" to listOf("tshirtSize"),
+                    ),
+                    customFieldKeys = setOf("tshirtSize"),
+                )
+            }.isInstanceOfSatisfying(ApiException::class.java) {
+                assertThat(it.code).isEqualTo("CONTRADICTORY_UPDATE")
+            }
+        }
+
         @Test
         fun `a malformed clearFields is rejected rather than ignored`() {
             assertThatThrownBy { writer.expandClearFields(mapOf("clearFields" to "middleName")) }

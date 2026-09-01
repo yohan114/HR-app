@@ -55,7 +55,16 @@ class EmployeeProjection(
         for ((key, accessor) in FIELDS) {
             when (fieldPermissions.accessFor(context, key)) {
                 FieldAccess.HIDDEN -> Unit
-                FieldAccess.MASKED -> payload[key] = FieldMasker.mask(accessor(employee))
+                FieldAccess.MASKED -> {
+                    // A built-in field has a declared wire type. Masking a date or a uuid would
+                    // put `••••` where the client expects a `LocalDate` or `UUID`, and kotlinx
+                    // aborts the whole response on that — one masked date would blank the entire
+                    // profile on Android and iOS. Where the mask cannot fit the type, the field is
+                    // hidden instead: strictly more restrictive, and a fully-masked date conveyed
+                    // nothing beyond its own existence anyway.
+                    val value = accessor(employee)
+                    if (FieldMasker.canMask(value)) payload[key] = FieldMasker.mask(value)
+                }
                 FieldAccess.READ, FieldAccess.WRITE -> payload[key] = accessor(employee)
             }
         }

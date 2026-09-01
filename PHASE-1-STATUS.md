@@ -29,8 +29,11 @@ reads the green checkmarks and concludes the foundation was verified.
 |---|---|
 | Backend compiles | `./gradlew compileKotlin` — BUILD SUCCESSFUL |
 | **Module boundaries hold across six modules** | `ModuleStructureTest` — shared, tenancy, organisation, identity, employee, config. Re-verified against a deliberate `config.forms.internal` import: still fails. |
-| **Spec and implementation agree** | `ApiContractTest` 5/5 — 18 paths, parity both directions |
-| Backend test suite | **134 tests**, 125 passing; the 9 failures are all `TenantIsolationTest` (Docker) |
+| **Spec and implementation agree** | `ApiContractTest` 5/5 — 23 paths, parity both directions |
+| Backend test suite | **220 tests**, 211 passing; the 9 failures are all `TenantIsolationTest` (Docker) |
+| **TOTP is provably correct** | `TotpGeneratorTest` — all six RFC 6238 vectors, plus the RFC 4648 base32 vectors |
+| **Column encryption** | `FieldCipherTest` — 10 tests: non-determinism, tamper detection, wrong-key failure, refusal to start without a key |
+| **MFA rules** | `MfaServiceTest` — 20 tests: two-step enrolment, single-use recovery codes, rate limiting, possession required to disable |
 | **Custom field validation** | 19 tests — required/partial semantics, every data type, malformed-pattern tolerance, all-violations-at-once |
 | **Field permission defaults** | 20 tests — the full read/write matrix for ordinary, sensitive, self and manage |
 | **Masking** | 13 tests, asserting on what is *absent* from the masked value |
@@ -39,7 +42,9 @@ reads the green checkmarks and concludes the foundation was verified.
 | All three clients regenerate | 28 models; Kotlin compiles, TypeScript type-checks under `--strict` |
 | Web console still builds | `tsc --noEmit` — 0 errors |
 | Infra checkers | 47 `.tf` files, 20 alerts, design tokens — all clean |
-| **Migrations, structurally** | `migration-check.mjs` — 8 migrations, 67 tables, 65 tenant-scoped, 0 problems. Every check proven to fire against an injected fault by `migration-check.selftest.mjs` (11 faults detected, 2 clean cases stayed quiet). |
+| **Migrations, structurally** | `migration-check.mjs` — 8 migrations, 67 tables, 65 tenant-scoped, 0 problems. Every check proven to fire against an injected fault by `migration-check.selftest.mjs` (**16** faults detected, 2 clean cases stayed quiet). |
+| CSS classes resolve | `css-class-check.mjs` — 52 used, 60 defined, 0 undefined. Now sees template-literal class names, which it previously could not. |
+| Web console lints | `eslint` with `react-hooks` — 0 warnings |
 | Documentation links | 60 local markdown links resolve |
 | **The generated Kotlin client can actually decode a response** | `ClientSerialisationTest` — 8 round-trip tests. Compilation proves the shape is valid and nothing about whether kotlinx can resolve a serialiser at runtime; these are different failures. Found a severe PATCH bug (below). |
 | Entity/schema agreement | `EntitySchemaTest` — 5 checks, each proven to fire against an injected fault. Covers JPA mappings by reflection *and* raw `INSERT` statements by parsing, so the seeder's hand-written SQL is checked too. |
@@ -571,6 +576,50 @@ test now exists.
 positive on `text[]` — an array, which GIN indexes natively, whose element type is a scalar — caught
 because it fired on the very index that motivated the rule.
 
+### Second pass: nine more fixed
+
+**Both high-severity findings, which were client-blocking.**
+
+*The web console could not save any date.* `EmployeeUpdate.dateOfBirth` is typed `Date` and the
+generated serialiser calls `.toISOString()`, so handing it the raw `"1990-05-02"` from a date input
+threw before the request was sent. Invisible to the compiler because the payload is assembled as
+`Record<string, unknown>` and spread into the typed model — which erases exactly the mismatch
+TypeScript would have caught. Conversion now happens off the schema's own field type.
+
+*A masked field violated its own declared type.* The mask is the string `••••`; the generated
+Kotlin model types `dateOfBirth` as `LocalDate` and Swift as `Date`. kotlinx aborts decoding of the
+**entire response** on a mismatch, so one masked date would have blanked the whole profile on both
+mobile clients. `FieldMasker.canMask` now decides whether the mask can fit the declared type, and a
+field that cannot be masked honestly is **hidden** instead — strictly more restrictive, and a
+fully-masked date conveyed nothing beyond its own existence anyway.
+
+**Three findings that were one defect.** `expandClearFields` put every cleared key at the top level,
+so clearing a *tenant-defined* field produced `400 UNKNOWN_FIELD` — there was no way to clear one at
+all, and the web console sends exactly that shape. Cleared keys are now routed into `customFields`
+when they belong there, and the contradiction check sees inside it.
+
+**Two silent-corruption fixes.** A `customFields` that was not an object was read with `as?`,
+dropped, and answered 200 — the caller told their change succeeded when nothing had changed. And a
+blank string skipped validation entirely, so `"  "` was stored verbatim in a slot declared `NUMBER`
+or `DATE`; it now clears the field, as it does for built-in text.
+
+**A 500 on the write path.** `BigDecimal(value.toString())` throws on a JSON literal outside
+`Double`'s range, turning a malformed field value into a 500 instead of a violation naming the field.
+
+**Four checker blind spots**, which matter more than their severity suggests because the status
+table above cites those checkers as evidence:
+
+| Checker | Was blind to |
+|---|---|
+| `migration-check` | A `tenant_id` added by `ALTER TABLE ADD COLUMN` — the normal way to add one — escaped the RLS assertion completely |
+| `migration-check` | A `DROP COLUMN` wrapped across two lines, which is this repo's own house style |
+| `migration-check` | `REFERENCES tenant` with no column list, which is valid PostgreSQL |
+| `css-class-check` | Every class in a template literal, because the expression regex stopped at the `}` inside `${...}` — `btn`, `badge` and `field__input` were all invisible |
+
+The self-test now proves **16** faults fire, up from 11. The CSS fix produced two false positives of
+its own on first run (`btn--`, `badge--` — the stems left where an interpolation was stripped),
+fixed by substituting a non-word character instead of a space.
+
 ### Confirmed, not yet fixed
 
 Recorded so none of it is lost. Two are worth reading before the next client change: the web console
@@ -586,27 +635,17 @@ The status table above cites those checkers as evidence, so their blind spots ar
 
 | Severity | Area | Finding |
 |---|---|---|
-| high | contract | Web console cannot save any built-in DATE field: the generated TS client calls `toISOString()` on the string it is given |
-| high | contract | A MASKED field violates its own declared type: the server emits `••••` where the spec says date/uuid/integer, aborting decode in the Kotlin and Swift clients |
 | medium | authorisation | An explicit `field_permission` row silently revokes self-service and self-read on the owner's own record |
 | medium | authorisation | `GET /v1/forms/{entityType}` applies no field permissions, contrary to its own OpenAPI contract |
 | medium | sql | Partitions of `audit_log`, `change_feed` and `mutation_log` have no RLS and no append-only lockdown — cross-tenant read and audit deletion via the partition |
 | medium | sql | `mutation_log`'s idempotency uniqueness is defeated by the partition key — the same idempotency key inserts twice |
-| medium | write-path | There is no way to clear a custom field via `clearFields`; the web console sends exactly that and gets 400 `UNKNOWN_FIELD` |
 | medium | write-path | A `customFields` value that is not a JSON object is silently discarded and the save returns 200 |
-| medium | write-path | A whitespace-only string bypasses every type check and is stored verbatim in a typed JSONB slot |
-| medium | contract | Clearing a tenant custom field from the web console is rejected with 400 `UNKNOWN_FIELD` |
 | medium | contract | The employee form schema names three `referenceTable`s that no endpoint serves, and one bad name 404s the whole batch reference call |
-| medium | checkers | `css-class-check.mjs` never sees classes in template-literal or render-prop `className`s — including `btn`, `badge` and `shell__link` |
-| medium | checkers | `migration-check` misses a `DROP COLUMN` written across two lines — the repo's own house style |
-| medium | checkers | `migration-check`'s foreign-key ordering check is blind to `REFERENCES <table>` without a column list |
 | medium | checkers | `migration-check` fails correct SQL when a tenant_id-leading index comes from a table-level `UNIQUE` constraint |
-| medium | checkers | A `tenant_id` column introduced by `ALTER TABLE ADD COLUMN` escapes `migration-check`'s RLS assertion entirely |
 | low | authorisation | `genderTypeId` and `nationalityId` are omitted from `ALWAYS_SENSITIVE` while their four sibling columns are in it |
 | low | sql | No index supports the directory's `ORDER BY` / keyset predicate — every directory page is a full scan and sort |
 | low | sql | The reporting-cycle guard reads stale hierarchy state, so a set-based supervisor `UPDATE` escapes it and the rebuild recurses until the backend aborts |
 | low | sql | `bank_account_split_value_present` allows a negative FIXED split amount |
-| low | write-path | A NUMBER custom field with an out-of-range JSON literal throws `NumberFormatException` and becomes a 500 |
 | low | write-path | A tenant-configured validation pattern is applied to user input with no backtracking guard |
 | low | checkers | `ApiContractTest` sees only `@RestController` classes and only path+method, so a renamed query parameter is undetectable drift |
 | low | checkers | `EntitySchemaTest`'s reference-table mirror — **fixed above**, listed for completeness |

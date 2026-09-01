@@ -54,7 +54,10 @@ class EmployeeWriter {
      * here everything is a plain null again, so [apply] and the custom-field
      * path need no knowledge of it.
      */
-    fun expandClearFields(updates: Map<String, Any?>): Map<String, Any?> {
+    fun expandClearFields(
+        updates: Map<String, Any?>,
+        customFieldKeys: Set<String> = emptySet(),
+    ): Map<String, Any?> {
         val toClear = updates["clearFields"] ?: return updates - "clearFields"
 
         val collection =
@@ -74,11 +77,15 @@ class EmployeeWriter {
             )
         }
 
+        @Suppress("UNCHECKED_CAST")
+        val submittedCustom = updates["customFields"] as? Map<String, Any?> ?: emptyMap()
+
         // A field both set and cleared in one request is two contradictory
         // instructions. Resolving it by precedence would make a save silently do
         // the opposite of what the caller intended, and which one won would
         // depend on map ordering.
-        val contradictory = keys.filter { updates.containsKey(it) }
+        val contradictory =
+            keys.filter { updates.containsKey(it) || submittedCustom.containsKey(it) }
         if (contradictory.isNotEmpty()) {
             throw BadRequestException(
                 code = "CONTRADICTORY_UPDATE",
@@ -89,7 +96,19 @@ class EmployeeWriter {
             )
         }
 
-        return (updates - "clearFields") + keys.associateWith { null }
+        // A cleared *custom* field belongs inside `customFields`, not at the top level.
+        //
+        // Without this split, `clearFields: ["tshirtSize"]` produced a top-level
+        // `tshirtSize: null`, which is not in [SETTERS] — so clearing any tenant-defined field
+        // came back `400 UNKNOWN_FIELD`. There was no way to clear one at all, and the web
+        // console sends exactly this shape.
+        val (customKeys, builtInKeys) = keys.partition { it in customFieldKeys }
+
+        val mergedCustom = submittedCustom + customKeys.associateWith { null }
+
+        return (updates - "clearFields") +
+            builtInKeys.associateWith { null } +
+            if (mergedCustom.isEmpty()) emptyMap() else mapOf("customFields" to mergedCustom)
     }
 
     /**

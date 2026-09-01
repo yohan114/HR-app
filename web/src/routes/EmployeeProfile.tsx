@@ -87,9 +87,11 @@ function ProfileForm({
         if (raw === '') {
           clearFields.push(key)
         } else if (field?.custom === true) {
+          // Custom fields land in a free-form JSONB column and the server validates them from
+          // their declared type, so a string is what it expects.
           customEdits[key] = raw
         } else {
-          builtIn[key] = raw
+          builtIn[key] = toWireValue(field, raw)
         }
       }
 
@@ -326,6 +328,34 @@ const EDITABLE_AS_TEXT = new Set<FormField['type']>([
   'EMAIL',
   'PHONE',
 ])
+
+/**
+ * Converts an input's string value into what the generated client expects.
+ *
+ * Not cosmetic. `EmployeeUpdate.dateOfBirth` is typed `Date`, and the generated serialiser calls
+ * `.toISOString()` on whatever it is given — so handing it the raw `"1990-05-02"` from a date input
+ * throws `toISOString is not a function` before the request is ever sent. Every date field on the
+ * profile was unsaveable.
+ *
+ * It was invisible to the compiler because the payload is assembled as `Record<string, unknown>`
+ * and spread into the typed model, which erases exactly the mismatch TypeScript would have caught.
+ * Keeping the conversion here, keyed off the schema's own field type, is what makes the assembly
+ * safe despite that.
+ */
+function toWireValue(field: FormField | undefined, raw: string): unknown {
+  switch (field?.type) {
+    case 'DATE':
+      return new Date(raw)
+    case 'NUMBER': {
+      const parsed = Number(raw)
+      // A non-numeric string reaching a number field is the server's to reject, with a message
+      // naming the field. Sending NaN instead would serialise as null and read as "clear it".
+      return Number.isNaN(parsed) ? raw : parsed
+    }
+    default:
+      return raw
+  }
+}
 
 /** Maps a schema type onto an input type. Only called for types in [EDITABLE_AS_TEXT]. */
 function inputType(field: FormField): string {

@@ -191,6 +191,72 @@ expectFail(
   'destructive DDL without an acknowledgement',
 )
 
+expectFail(
+  'a DROP COLUMN wrapped across two lines, in the house style',
+  (dir) =>
+    writeFileSync(
+      join(dir, 'V9__fault.sql'),
+      `ALTER TABLE sequence_config
+    DROP COLUMN reset_policy;
+`,
+    ),
+  'destructive DDL without an acknowledgement',
+)
+
+expectFail(
+  'a tenant_id added by ALTER TABLE, with no RLS',
+  (dir) =>
+    writeFileSync(
+      join(dir, 'V9__fault.sql'),
+      `CREATE TABLE widget (
+    id   uuid PRIMARY KEY,
+    name text NOT NULL
+);
+ALTER TABLE widget ADD COLUMN tenant_id uuid NOT NULL;
+CREATE INDEX ix_widget_tenant ON widget (tenant_id, name);
+`,
+    ),
+  "never calls apply_tenant_rls('widget')",
+)
+
+expectFail(
+  'a foreign key with no column list, to a table created later',
+  (dir) => {
+    writeFileSync(
+      join(dir, 'V9__fault.sql'),
+      `CREATE TABLE early (
+    id        uuid PRIMARY KEY,
+    tenant_id uuid NOT NULL,
+    late_id   uuid REFERENCES late
+);
+CREATE INDEX ix_early_tenant ON early (tenant_id);
+SELECT apply_tenant_rls('early');
+`,
+    )
+    writeFileSync(
+      join(dir, 'V10__fault2.sql'),
+      `CREATE TABLE late (
+    id        uuid PRIMARY KEY,
+    tenant_id uuid NOT NULL
+);
+CREATE INDEX ix_late_tenant ON late (tenant_id);
+SELECT apply_tenant_rls('late');
+`,
+    )
+  },
+  'created later in',
+)
+
+expectFail(
+  'a GIN index over a scalar column with no btree_gin',
+  (dir) => {
+    patch(dir, 'V1__platform_tenancy.sql', (sql) =>
+      sql.replace(/CREATE EXTENSION IF NOT EXISTS "btree_gin";/, ''),
+    )
+  },
+  'no migration installs btree_gin',
+)
+
 expectPass('a DROP TABLE that is acknowledged', (dir) =>
   writeFileSync(
     join(dir, 'V9__fault.sql'),

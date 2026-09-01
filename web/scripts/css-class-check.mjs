@@ -45,7 +45,30 @@ for (const file of filesUnder(root, ['.css'])) {
 // Anything computed is skipped rather than guessed at — a checker that cannot see
 // `className={styles[key]}` should say nothing about it, not invent a name.
 
+/** The text between the brace at [open] and its match, or null if unbalanced. */
+function balancedBraces(text, open) {
+  let depth = 0
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '{') depth++
+    else if (text[i] === '}') {
+      depth--
+      if (depth === 0) return text.slice(open + 1, i)
+    }
+  }
+  return null
+}
+
 const CSS_IDENTIFIER = /^-?[_a-zA-Z][\w-]*$/
+/**
+ * Stands in for a template interpolation.
+ *
+ * A space would split a dynamic class such as "btn--" plus an interpolation into the bare stem
+ * "btn--", which nobody defines and which the checker would then report as missing — its own first
+ * run did exactly that. NUL is not a word character, so the stem fails the identifier test and is
+ * skipped, while the genuinely static "btn" beside it is still seen.
+ */
+const INTERPOLATION_MARKER = '\u0000'
+
 const JS_LITERALS = new Set(['undefined', 'null', 'true', 'false'])
 
 const used = new Map() // class -> first file that used it
@@ -53,16 +76,33 @@ const used = new Map() // class -> first file that used it
 for (const file of filesUnder(root, ['.tsx', '.ts'])) {
   const source = readFileSync(file, 'utf8')
 
-  for (const match of source.matchAll(/className\s*=\s*(?:"([^"]*)"|\{([^}]*)\})/g)) {
+  for (const match of source.matchAll(/className\s*=\s*(?:"([^"]*)"|\{)/g)) {
     const literal = match[1]
-    const expression = match[2]
 
     const candidates = []
     if (literal !== undefined) {
       candidates.push(literal)
-    } else if (expression !== undefined) {
-      // Pull every quoted run out of the expression; ignore the rest.
-      for (const quoted of expression.matchAll(/['"`]([^'"`]*)['"`]/g)) candidates.push(quoted[1])
+    } else {
+      // Brace-matched rather than `[^}]*`. A template literal containing an interpolation —
+      // `className={`btn btn--${variant}`}` — has its first `}` inside the `${...}`, so the naive
+      // pattern truncated the expression mid-literal and never saw `btn` at all. `btn`, `badge`
+      // and `field__input` were invisible to this checker for exactly that reason.
+      const expression = balancedBraces(source, match.index + match[0].length - 1)
+      if (expression === null) continue
+
+      // Interpolations become a NUL rather than a space. A space would split `btn--${variant}`
+      // into the bare stem `btn--`, which is not a class name anybody defined and would be
+      // reported as missing — the checker's own first run did exactly that. NUL is not a word
+      // character, so the stem fails the identifier test below and is skipped, while the genuinely
+      // static `btn` beside it is still seen.
+      const withoutInterpolations = expression.replace(/\$\{[^}]*\}/g, INTERPOLATION_MARKER)
+      for (const quoted of withoutInterpolations.matchAll(/['"`]([^'"`]*)['"`]/g)) {
+        candidates.push(quoted[1])
+      }
+      // A template literal left unterminated by the interpolation strip still holds names.
+      for (const template of withoutInterpolations.matchAll(/`([^`]*)`?/g)) {
+        candidates.push(template[1])
+      }
     }
 
     for (const candidate of candidates) {

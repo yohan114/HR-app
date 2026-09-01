@@ -101,10 +101,30 @@ class EmployeeService(
         val customKeys = customFields.activeFieldKeys(EmployeeProjection.ENTITY_TYPE)
         val writable = projection.writableFieldsFor(context, customKeys)
 
-        val effectiveUpdates = writer.expandClearFields(updates)
+        // A `customFields` that is not an object is a malformed request, not an absent one.
+        // Reading it with `as?` and carrying on meant a string or an array there was dropped and
+        // the save answered 200 — the caller was told their change succeeded and nothing had
+        // changed.
+        updates["customFields"]?.let {
+            if (it !is Map<*, *>) {
+                throw com.hr.shared.api.BadRequestException(
+                    code = "MALFORMED_REQUEST",
+                    message = "customFields must be an object",
+                    field = "customFields",
+                )
+            }
+        }
+
+        val effectiveUpdates = writer.expandClearFields(updates, customKeys)
 
         @Suppress("UNCHECKED_CAST")
-        val customUpdates = effectiveUpdates["customFields"] as? Map<String, Any?>
+        val customUpdates =
+            (effectiveUpdates["customFields"] as? Map<String, Any?>)
+                // A blank string means "clear this", exactly as it does for a built-in text field.
+                // Left as-is it bypassed every type check — the validator skips a blank value, so
+                // `"  "` was stored verbatim in a slot declared NUMBER or DATE, and every consumer
+                // of that JSONB column then had to defend against it.
+                ?.mapValues { (_, value) -> if (value is String && value.isBlank()) null else value }
 
         if (customUpdates != null) {
             val forbidden = customUpdates.keys.filterNot { it in writable }

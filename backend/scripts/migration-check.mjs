@@ -187,6 +187,23 @@ for (const { file, version: v, sql } of sources) {
   }
 }
 
+// A column added later still makes its table tenant-scoped.
+//
+// `CREATE TABLE` was the only source of columns, so a `tenant_id` introduced by
+// `ALTER TABLE ... ADD COLUMN` — the normal way to add one to an existing table — escaped the RLS
+// assertion completely. The most likely future version of the exact bug this checker exists for.
+for (const { sql } of sources) {
+  for (const match of sql.matchAll(
+    /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)([^;]*)/gi,
+  )) {
+    const table = tables.get(match[1].toLowerCase())
+    if (table) {
+      table.columns.add(match[2].toLowerCase())
+      table.body += `,\n    ${match[2]} ${match[3].trim()}`
+    }
+  }
+}
+
 /** Returns the text between the parenthesis at [open] and its match, or null. */
 function balancedFrom(text, open) {
   let depth = 0
@@ -417,7 +434,9 @@ function columnDeclaration(table, column) {
 // 5. Foreign keys reference a table that already exists
 
 for (const { file, version: v, sql } of sources) {
-  for (const m of sql.matchAll(/REFERENCES\s+([a-z_][a-z0-9_]*)\s*\(/gi)) {
+  // The column list is optional in PostgreSQL: `REFERENCES tenant` targets the primary key and is
+  // perfectly valid. Requiring `(` meant every such reference was invisible to this check.
+  for (const m of sql.matchAll(/REFERENCES\s+([a-z_][a-z0-9_]*)\s*(?:\(|\s|,|$)/gi)) {
     const target = m[1].toLowerCase()
     const known = tables.get(target)
     if (!known) {
@@ -435,10 +454,21 @@ for (const { file, version: v, sql } of sources) {
 // 6. Destructive DDL needs an acknowledgement
 
 for (const { file, raw } of sources) {
-  const destructive = raw
-    .split('\n')
-    .map((line, i) => ({ line, n: i + 1 }))
-    .filter(({ line }) => /^\s*(DROP\s+TABLE|ALTER\s+TABLE\s+\S+\s+DROP\s+COLUMN|TRUNCATE)\b/i.test(line))
+  const lines = raw.split('\n')
+
+  // Matched against the statement, not the line. This repo's own house style wraps an
+  // `ALTER TABLE` across two lines, so a line-anchored `DROP COLUMN` pattern missed every
+  // destructive statement written the way the existing migrations write them.
+  const destructive = lines
+    .map((line, i) => {
+      // Join with the following line so a wrapped statement is visible to the pattern, while the
+      // reported line number stays the one the statement starts on.
+      const statement = (line + ' ' + (lines[i + 1] ?? '')).replace(/\s+/g, ' ')
+      return { line, statement, n: i + 1 }
+    })
+    .filter(({ statement }) =>
+      /^\s*(DROP\s+TABLE|ALTER\s+TABLE\s+\S+\s+DROP\s+COLUMN|TRUNCATE)\b/i.test(statement),
+    )
 
   for (const { line, n } of destructive) {
     const context = raw.split('\n').slice(Math.max(0, n - 6), n - 1).join('\n')
