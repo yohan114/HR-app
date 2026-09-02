@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import androidx.work.WorkManager
 import com.hr.app.BuildConfig
+import com.hr.app.data.auth.AuthInterceptor
+import com.hr.app.data.auth.TokenRefreshAuthenticator
 import com.hr.app.data.local.DatabaseKeyProvider
 import com.hr.app.data.local.HrDatabase
 import com.hr.app.data.local.OutboxDao
@@ -70,12 +72,24 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient =
+    fun provideOkHttpClient(
+        authInterceptor: AuthInterceptor,
+        tokenRefreshAuthenticator: TokenRefreshAuthenticator,
+    ): OkHttpClient =
         OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+            // Before these existed nothing on Android sent an Authorization header — including
+            // OutboxHttpSender, so every mutation the user made offline would have come back 401
+            // on the next drain and paused the outbox indefinitely. The write path was
+            // authenticated in the design and anonymous in fact.
+            .addInterceptor(authInterceptor)
+            // An Authenticator rather than another interceptor: OkHttp replays the request for us
+            // with whatever it returns, and bounds the retries. See TokenRefreshAuthenticator for
+            // why the concurrency this creates is safe.
+            .authenticator(tokenRefreshAuthenticator)
             .apply {
                 if (BuildConfig.DEBUG) {
                     // BODY level logs request and response payloads, which include salaries,

@@ -469,6 +469,48 @@ compiled.
 
 ---
 
+## iOS is parked; Android and web continue
+
+A scope decision, recorded because it changes what CI means.
+
+**`ios.yml` is now `workflow_dispatch` only.** No Swift in this repository has ever been compiled —
+there is no toolchain on the machine it was written on — so that job was going to be red on every
+push touching `clients/swift`, which the backend regenerates constantly. A permanently red job is
+worse than no job: it teaches everyone to stop reading the tick, and the next genuine failure hides
+behind it. Nothing is deleted; run it from the Actions tab when iOS resumes, and the first green run
+is the gate for restoring the push trigger. The `swift` job in `clients.yml` is
+`continue-on-error: true` for the same reason — it still reports, it just does not block a backend
+change nobody is shipping to iOS.
+
+**Android, by contrast, builds here.** Confirmed rather than assumed: `compileDebugKotlin`, KSP,
+Hilt, `assembleDebug` and the unit tests all run on this machine. So Android work is verifiable in
+the way iOS was not, which is why it goes first.
+
+### Android now has a session
+
+The gap was larger than "no screens". **Nothing on Android sent an `Authorization` header at all** —
+including `OutboxHttpSender`, so every mutation a user made offline would have come back 401 on the
+next drain, been classified `AuthenticationRequired`, and paused the outbox indefinitely. The write
+path was authenticated in the design and anonymous in fact.
+
+`SessionStore` mirrors the iOS `TokenProvider`, including the single-flight refresh — and here it
+matters more, because OkHttp calls `Authenticator.authenticate` concurrently from whichever threads
+got a 401. The bad case is the *default*, not an unlucky race: six parallel 401s become six
+rotations, five present an already-spent token, and the server correctly revokes the whole family.
+The user is signed out of every device because a screen loaded six widgets.
+
+One real platform difference, and it is not cosmetic. iOS `seal` does not prompt and only `unseal`
+does, so the iOS store reseals on every rotation. Android's `seal` takes a `Cipher` that a biometric
+prompt has already unlocked, so it needs an Activity and a gesture — `SessionStore` therefore cannot
+touch the keystore at all. The split is that it owns the live session, and enrolment is an explicit
+screen. `resealRequired` exists because a rotated token leaves the sealed copy *spent*, and
+presenting a spent token on the next cold start is the exact theft signal the design is built around.
+
+**19 Android tests, 0 failures**, 10 of them on the session — including ten concurrent callers
+producing exactly one refresh. `assembleDebug` produces installable APKs for all three ABIs.
+
+---
+
 ## MFA (P1-BE-28) — TOTP, recovery codes, column encryption
 
 The first Phase 1 feature built end to end since the review, and the one where correctness could
