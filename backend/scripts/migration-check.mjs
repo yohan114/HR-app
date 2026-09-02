@@ -374,6 +374,53 @@ for (const [name, table] of tables) {
 }
 
 // ---------------------------------------------------------------------------
+// 9. A partition-creating function must apply RLS to what it creates
+//
+// A policy on a partitioned table governs rows reached *through the parent*. A query naming a
+// partition directly is governed only by that partition's own policies — so a partition without
+// RLS returns every tenant's rows, and the parent's policy never runs.
+//
+// Partitions are created by `EXECUTE format('CREATE TABLE %I PARTITION OF ...')`, so they are
+// invisible to the CREATE TABLE parsing above and no per-table rule could see them. The check is
+// therefore on the function that makes them, exactly as it is for the reference-table generator.
+
+const partitionedParents = new Set()
+for (const { sql } of sources) {
+  for (const match of sql.matchAll(/CREATE\s+TABLE\s+([a-z_][a-z0-9_]*)[\s\S]*?PARTITION\s+BY/gi)) {
+    partitionedParents.add(match[1].toLowerCase())
+  }
+}
+
+if (partitionedParents.size > 0) {
+  const creators = sources.flatMap(({ file, raw }) =>
+    [...raw.matchAll(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+(\w+)[\s\S]*?\n\$\$;/gi)].map((m) => ({
+      file,
+      name: m[1],
+      body: m[0],
+    })),
+  )
+
+  const partitionCreators = creators.filter((f) => /CREATE\s+TABLE\s+%I\s+PARTITION\s+OF/i.test(f.body))
+
+  if (partitionCreators.length === 0) {
+    fail(
+      `${[...partitionedParents].join(', ')} are partitioned, but no function creates partitions — ` +
+        `check how partitions are provisioned and whether they get RLS.`,
+    )
+  }
+
+  for (const creator of partitionCreators) {
+    if (!/apply_tenant_rls/.test(creator.body)) {
+      fail(
+        `${creator.file}: ${creator.name}() creates partitions but never calls apply_tenant_rls on ` +
+          `them. A partition without its own policy is readable across tenants when queried ` +
+          `directly — the parent's policy only applies to rows reached through the parent.`,
+      )
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 8. A GIN index over a scalar column requires btree_gin
 //
 // GIN ships operator classes for arrays, jsonb and tsvector — not for uuid, text or timestamp. A

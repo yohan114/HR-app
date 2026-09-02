@@ -140,6 +140,17 @@ COMMENT ON COLUMN mutation_log.payload_hash IS
 -- Creates partitions for a month if they do not already exist. Called by a
 -- scheduled job that runs ahead of time; also invoked below to bootstrap the
 -- current and next month so a fresh database is immediately usable.
+--
+-- Each partition gets its own RLS policy and its own append-only revocation.
+-- That is not belt-and-braces: a policy on a partitioned table is applied when
+-- rows are reached *through the parent*, and a query naming a partition
+-- directly is governed only by that partition's own policies. So
+-- `SELECT * FROM audit_log_202608` on a partition without RLS returns every
+-- tenant's audit rows — the parent's policy never runs.
+--
+-- Doing it inside this function rather than at the call sites is what makes it
+-- durable: the scheduled job creates a partition a month from now, long after
+-- anybody is looking at this file.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION ensure_monthly_partition(parent_table text, month_start date)
     RETURNS void
@@ -156,6 +167,14 @@ BEGIN
         EXECUTE format(
             'CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
             partition_name, parent_table, month_start, month_end);
+
+        PERFORM apply_tenant_rls(partition_name);
+
+        -- Mirrors the lockdown applied to the parents further down this file.
+        -- An audit row that can be deleted through a partition is not an audit
+        -- row, and `REVOKE` on the parent does not cascade.
+        EXECUTE format('REVOKE UPDATE, DELETE ON %I FROM hr_app', partition_name);
+        EXECUTE format('GRANT SELECT, INSERT ON %I TO hr_app', partition_name);
     END IF;
 END;
 $$;

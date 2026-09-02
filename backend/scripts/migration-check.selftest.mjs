@@ -248,6 +248,15 @@ SELECT apply_tenant_rls('late');
 )
 
 expectFail(
+  'a partition-creating function that does not apply RLS',
+  (dir) =>
+    patch(dir, 'V3__audit_and_sync.sql', (sql) =>
+      sql.replace('        PERFORM apply_tenant_rls(partition_name);\n', ''),
+    ),
+  'never calls apply_tenant_rls on them',
+)
+
+expectFail(
   'a GIN index over a scalar column with no btree_gin',
   (dir) => {
     patch(dir, 'V1__platform_tenancy.sql', (sql) =>
