@@ -509,6 +509,42 @@ presenting a spent token on the next cold start is the exact theft signal the de
 **19 Android tests, 0 failures**, 10 of them on the session — including ten concurrent callers
 producing exactly one refresh. `assembleDebug` produces installable APKs for all three ABIs.
 
+### And a sign-in flow on top of it
+
+Organisation → credentials → second factor, the last step only when the account has one. The
+organisation step is first so nobody is asked to type a "service URL", which is the single
+most-complained-about step in the product this replaces — and a device that has signed in before
+skips it entirely.
+
+**Two HTTP clients, and the split is load-bearing.** Auth endpoints go through an
+`@UnauthenticatedApi` client with no interceptor and no authenticator, for two independent reasons:
+
+- **Recursion.** A refresh sent through the authenticated client reaches `AuthInterceptor`, which
+  asks `SessionStore` for a token, which — finding it expired — starts a refresh, which sends the
+  same request again. Nothing breaks that cycle except the socket timeout.
+- **The server refuses it anyway.** These endpoints take `X-Tenant-Code`, and a bearer token
+  alongside it is answered `TENANT_MISMATCH` — once a token exists the tenant comes from its claim.
+
+A qualifier rather than a naming convention, so injecting the wrong one is a compile error instead
+of a production hang.
+
+**`MFA_REQUIRED` is modelled as a success, not an error.** The password *was* correct;
+`SignInOutcome.MfaRequired` carries the challenge. Rendering it red would tell the user they did
+something wrong at the exact moment they did not, and would push every caller into reading an
+exception to find the happy path.
+
+**Errors are localised from the machine-readable code, never the server's message** — those are
+developer-facing English and sometimes carry internal detail. A test asserts an unknown code does
+not leak it. Another asserts an `IOException` reads as "no connection" rather than "wrong password":
+sending someone to reset a working password because their train entered a tunnel is the specific
+failure that guards against.
+
+**30 Android tests, 0 failures.** Hilt validating the graph at build time is real verification here
+— it is what proves the two-client split is actually wired the way the comments claim.
+
+Not built: the biometric enrolment screen that would call `currentRefreshToken`/`markSealed`, and
+the real screens behind the tabs. `canApprove` in the shell is still hardcoded pending `/v1/me`.
+
 ---
 
 ## MFA (P1-BE-28) — TOTP, recovery codes, column encryption

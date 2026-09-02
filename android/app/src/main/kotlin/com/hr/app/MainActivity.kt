@@ -22,6 +22,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hr.app.ui.SessionViewModel
+import com.hr.app.ui.auth.SignInScreen
 import com.hr.app.ui.navigation.TopLevelDestination
 import com.hr.app.ui.theme.HrTheme
 import com.hr.app.ui.theme.Spacing
@@ -44,14 +48,33 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             HrTheme {
-                HrAppShell()
+                HrApp()
             }
         }
     }
 }
 
+/**
+ * Sign-in or the app, depending on whether there is a session.
+ *
+ * State is held here rather than in a navigation graph because there is exactly one decision and it
+ * has no back stack: signing out must not leave the shell reachable with the system back button,
+ * and a `NavHost` would need an explicit `popUpTo` to guarantee that. One boolean cannot get
+ * that wrong.
+ */
 @Composable
-private fun HrAppShell() {
+private fun HrApp(viewModel: SessionViewModel = hiltViewModel()) {
+    val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
+
+    if (signedIn) {
+        HrAppShell(onSignOut = viewModel::signOut)
+    } else {
+        SignInScreen(onSignedIn = viewModel::onSignedIn)
+    }
+}
+
+@Composable
+private fun HrAppShell(onSignOut: () -> Unit) {
     // Wired to `GET /v1/me` permissions in Phase 1. Hardcoded here so the shell is demonstrable.
     val canApprove = true
     val destinations = remember(canApprove) { TopLevelDestination.forUser(canApprove) }
