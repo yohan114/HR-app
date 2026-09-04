@@ -575,9 +575,39 @@ Decisions worth knowing:
 
 **30 Android tests, 0 failures**, and `assembleDebug` still produces APKs for all three ABIs.
 
-Not built: the real screens behind the tabs, and `canApprove` in the shell is still hardcoded
-pending `/v1/me`. The biometric paths themselves cannot be unit-tested here — they need a device
-with hardware — so they are compiled and reasoned about, not proven.
+### The shell is genuinely role-adaptive now
+
+`canApprove` was hardcoded `true`, which made "role-adaptive navigation" a claim the code did not
+support. It now comes from `GET /v1/me`, through a new authenticated Retrofit instance —
+`ApiModule`, deliberately a separate file from `AuthModule` so the rule is visible from the import
+list: a file importing one is making authenticated calls, a file importing the other is
+establishing a session.
+
+**The shell waits for the profile rather than drawing a default tab set and correcting it.** A
+navigation bar that gains an Approvals tab a second after launch moves every other tab sideways
+under the user's thumb.
+
+**A failed `/v1/me` is not a sign-out.** The session is valid; the request was not. Dropping the
+user back to the password form would make a flaky network look like an expired login, so it shows a
+retry instead.
+
+`APPROVAL_PERMISSIONS` lists four permissions that do not exist yet alongside the one that does, so
+the tab appears the moment a module grants one rather than needing a client release to notice a
+capability the server already reports. It is defined once, in the repository, and derived into the
+UI — I had briefly duplicated it into `MainActivity`, which is exactly the copy that drifts.
+
+### People tab
+
+Directory search, mirroring the web console: debounced at 250ms, keyed by employee id so
+recomposition tracks people rather than positions, `aria`-equivalent live regions for the result
+count. Offline reads as "no connection" rather than "something went wrong", because on a phone
+offline is the expected case and only one of those messages is actionable.
+
+**30 Android tests, 0 failures**, and `assembleDebug` still produces APKs for all three ABIs.
+
+Not built: the profile screen behind a directory row, and the remaining four tabs. The biometric
+paths cannot be unit-tested here — they need a device with hardware — so they are compiled and
+reasoned about, not proven.
 
 ---
 

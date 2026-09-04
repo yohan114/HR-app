@@ -5,15 +5,18 @@ import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,9 +32,11 @@ import com.hr.app.ui.SessionViewModel
 import com.hr.app.ui.auth.BiometricEnrolmentPrompt
 import com.hr.app.ui.auth.BiometricUnlockScreen
 import com.hr.app.ui.auth.SignInScreen
+import com.hr.app.ui.directory.DirectoryScreen
 import com.hr.app.ui.navigation.TopLevelDestination
 import com.hr.app.ui.theme.HrTheme
 import com.hr.app.ui.theme.Spacing
+import com.hr.client.model.MeResponse
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
@@ -69,6 +74,9 @@ class MainActivity : FragmentActivity() {
 private fun HrApp(viewModel: SessionViewModel = hiltViewModel()) {
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
     val startWithBiometric by viewModel.startWithBiometric.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val profileFailed by viewModel.profileFailed.collectAsStateWithLifecycle()
+    val canApprove by viewModel.canApprove.collectAsStateWithLifecycle()
     var offerEnrolment by rememberSaveable { mutableStateOf(false) }
 
     when {
@@ -78,7 +86,14 @@ private fun HrApp(viewModel: SessionViewModel = hiltViewModel()) {
         signedIn && offerEnrolment ->
             BiometricEnrolmentPrompt(onFinished = { offerEnrolment = false })
 
-        signedIn -> HrAppShell(onSignOut = viewModel::signOut)
+        signedIn ->
+            HrAppShell(
+                user = currentUser,
+                canApprove = canApprove,
+                profileFailed = profileFailed,
+                onRetryProfile = viewModel::loadProfile,
+                onSignOut = viewModel::signOut,
+            )
 
         // A device that has enrolled starts here, not on the password form. This is the feature.
         startWithBiometric ->
@@ -100,10 +115,26 @@ private fun HrApp(viewModel: SessionViewModel = hiltViewModel()) {
     }
 }
 
+/**
+ * The signed-in app.
+ *
+ * Waits for `GET /v1/me` before drawing the tab bar. Rendering a default set and correcting it a
+ * moment later would move every tab sideways under the user's thumb — and the tab set is not
+ * cosmetic here, it is the role-adaptive navigation the product is designed around.
+ */
 @Composable
-private fun HrAppShell(onSignOut: () -> Unit) {
-    // Wired to `GET /v1/me` permissions in Phase 1. Hardcoded here so the shell is demonstrable.
-    val canApprove = true
+private fun HrAppShell(
+    user: MeResponse?,
+    canApprove: Boolean,
+    profileFailed: Boolean,
+    onRetryProfile: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    if (user == null) {
+        LoadingOrRetry(failed = profileFailed, onRetry = onRetryProfile)
+        return
+    }
+
     val destinations = remember(canApprove) { TopLevelDestination.forUser(canApprove) }
     var selected by remember { mutableStateOf(TopLevelDestination.HOME) }
 
@@ -128,20 +159,56 @@ private fun HrAppShell(onSignOut: () -> Unit) {
             }
         },
     ) { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.s4),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s2, Alignment.CenterVertically),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(selected.labelRes),
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Text(
-                text = stringResource(R.string.placeholder_phase_one),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            when (selected) {
+                TopLevelDestination.PEOPLE -> DirectoryScreen()
+
+                // The remaining tabs land with the modules that fill them. The placeholder names
+                // the destination so the shell is navigable rather than blank.
+                else ->
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(Spacing.s4),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s2, Alignment.CenterVertically),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = stringResource(selected.labelRes),
+                            style = MaterialTheme.typography.headlineMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.placeholder_phase_one),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onSignOut) { Text("Sign out") }
+                    }
+            }
         }
     }
 }
+
+/**
+ * Shown while `/v1/me` loads, and offering a retry if it fails.
+ *
+ * A failure here is not a sign-out: the session is valid, the request was not. Dropping the user
+ * back to the password form would make a flaky network look like an expired login.
+ */
+@Composable
+private fun LoadingOrRetry(
+    failed: Boolean,
+    onRetry: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(Spacing.s4),
+        verticalArrangement = Arrangement.spacedBy(Spacing.s2, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (failed) {
+            Text("Could not load your profile.")
+            TextButton(onClick = onRetry) { Text("Try again") }
+        } else {
+            CircularProgressIndicator()
+        }
+    }
+}
+
