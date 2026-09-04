@@ -33,6 +33,7 @@ import com.hr.app.ui.auth.BiometricEnrolmentPrompt
 import com.hr.app.ui.auth.BiometricUnlockScreen
 import com.hr.app.ui.auth.SignInScreen
 import com.hr.app.ui.directory.DirectoryScreen
+import com.hr.app.ui.profile.ProfileScreen
 import com.hr.app.ui.navigation.TopLevelDestination
 import com.hr.app.ui.theme.HrTheme
 import com.hr.app.ui.theme.Spacing
@@ -137,6 +138,7 @@ private fun HrAppShell(
 
     val destinations = remember(canApprove) { TopLevelDestination.forUser(canApprove) }
     var selected by remember { mutableStateOf(TopLevelDestination.HOME) }
+    var openProfileId by remember { mutableStateOf<java.util.UUID?>(null) }
 
     Scaffold(
         bottomBar = {
@@ -144,7 +146,10 @@ private fun HrAppShell(
                 destinations.forEach { destination ->
                     NavigationBarItem(
                         selected = selected == destination,
-                        onClick = { selected = destination },
+                        onClick = {
+                            selected = destination
+                            openProfileId = null
+                        },
                         icon = {
                             Icon(
                                 imageVector = destination.icon,
@@ -160,8 +165,19 @@ private fun HrAppShell(
         },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            when (selected) {
-                TopLevelDestination.PEOPLE -> DirectoryScreen()
+            // A profile opened from the directory sits *over* the tab it came from, and Back
+            // returns to the search with its query intact. Losing what you typed because you
+            // looked at a result is the fastest way to make a directory unusable.
+            val openProfile = openProfileId
+            when {
+                openProfile != null ->
+                    ProfileScreen(employeeId = openProfile, onBack = { openProfileId = null })
+
+                selected == TopLevelDestination.PEOPLE ->
+                    DirectoryScreen(onOpenProfile = { openProfileId = it })
+
+                selected == TopLevelDestination.ME ->
+                    ProfileScreen(employeeId = null, onBack = onSignOut)
 
                 // The remaining tabs land with the modules that fill them. The placeholder names
                 // the destination so the shell is navigable rather than blank.

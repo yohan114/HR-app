@@ -1,5 +1,6 @@
 package com.hr.app.ui.directory
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,7 +34,10 @@ import com.hr.app.ui.theme.Spacing
  * list you scroll is not a way to find anybody — the search box is.
  */
 @Composable
-fun DirectoryScreen(viewModel: DirectoryViewModel = hiltViewModel()) {
+fun DirectoryScreen(
+    onOpenProfile: (java.util.UUID) -> Unit,
+    viewModel: DirectoryViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize().padding(Spacing.s4)) {
@@ -94,7 +98,7 @@ fun DirectoryScreen(viewModel: DirectoryViewModel = hiltViewModel()) {
                     // Keyed on id so recomposition tracks people rather than positions — without
                     // it, every result shifting by one row as you type rebuilds the whole list.
                     items(state.entries, key = { it.id }) { entry ->
-                        DirectoryRow(entry)
+                        DirectoryRow(entry, onClick = { onOpenProfile(entry.id) })
                         HorizontalDivider()
                     }
                 }
@@ -103,8 +107,19 @@ fun DirectoryScreen(viewModel: DirectoryViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun DirectoryRow(entry: DirectoryEntry) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.s2)) {
+private fun DirectoryRow(
+    entry: DirectoryEntry,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                // The whole row, not just the name: a 48dp target is the accessibility minimum and
+                // a tappable name alone is a smaller one.
+                .clickable(onClick = onClick)
+                .padding(vertical = Spacing.s2),
+    ) {
         Text(entry.displayName, style = MaterialTheme.typography.bodyLarge)
 
         // Every one of these may legitimately be absent: the projection omits what the caller has

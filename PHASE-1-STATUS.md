@@ -605,9 +605,38 @@ offline is the expected case and only one of those messages is actionable.
 
 **30 Android tests, 0 failures**, and `assembleDebug` still produces APKs for all three ABIs.
 
-Not built: the profile screen behind a directory row, and the remaining four tabs. The biometric
-paths cannot be unit-tested here — they need a device with hardware — so they are compiled and
-reasoned about, not proven.
+### Employee profile, and a problem the typed client creates
+
+Tapping a directory row opens a profile; the Me tab shows your own. That completes the Android
+walking skeleton — sign in, find a colleague, read their record.
+
+**The generated Kotlin model erases a distinction the server is careful about.** ADR 0006 has the
+server *omit* a field the caller may not see, rather than sending it as null, precisely so a client
+cannot render a disabled-looking row for something it was refused. The web console preserves that,
+because it reads an untyped map and can ask whether a key is present. `EmployeeProfile` in Kotlin
+makes every property nullable, so `dateOfBirth == null` means either "withheld" or "not filled in",
+and the screen cannot tell.
+
+So the field *list* comes from `GET /v1/employees/{id}/form`, which already omits what the caller
+may not see, and the typed model supplies only the values of fields we have been told to draw. A
+row therefore exists only if the caller is permitted it, which makes a blank one honestly mean
+"nobody entered this".
+
+The lookup is explicit rather than reflective, deliberately: reflection would silently start
+exposing any property added to the generated model, whereas a missing key here shows as a blank
+value on a field somebody put in the schema on purpose.
+
+Reference and employee ids render blank rather than showing a raw uuid — `a3f1…` under a heading
+that says "Department" looks like data, cannot be acted on, and would be the only thing on the row.
+They fill in when the pickers land.
+
+**37 Android tests, 0 failures.** The seven new ones cover the field lookup, including that an
+unknown key from a newer server is null rather than a crash — the schema is server-driven, so a
+field this build has never heard of is expected rather than exceptional.
+
+Not built: the remaining four tabs, and profile *editing* on Android (the web console has it). The
+biometric paths cannot be unit-tested here — they need a device with hardware — so they are compiled
+and reasoned about, not proven.
 
 ---
 
