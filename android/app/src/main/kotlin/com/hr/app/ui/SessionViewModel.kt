@@ -3,6 +3,7 @@ package com.hr.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hr.app.data.auth.AuthRepository
+import com.hr.app.data.auth.BiometricSession
 import com.hr.app.data.auth.SessionStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,12 +26,29 @@ class SessionViewModel
     constructor(
         private val session: SessionStore,
         private val auth: AuthRepository,
+        private val biometric: BiometricSession,
     ) : ViewModel() {
         private val _signedIn = MutableStateFlow(session.hasSession)
         val signedIn: StateFlow<Boolean> = _signedIn.asStateFlow()
 
+        /**
+         * Whether a cold start should offer biometric unlock rather than the password form.
+         *
+         * Read once, at construction. A device either has a sealed token when the app launches or
+         * it does not, and the only things that change that — enrolling, or the store clearing an
+         * invalidated key — happen after this decision has already been made.
+         */
+        private val _startWithBiometric = MutableStateFlow(!session.hasSession && biometric.hasEnrolledToken)
+        val startWithBiometric: StateFlow<Boolean> = _startWithBiometric.asStateFlow()
+
         fun onSignedIn() {
             _signedIn.value = session.hasSession
+            _startWithBiometric.value = false
+        }
+
+        /** The user chose the password form over the prompt, or there was nothing to unlock. */
+        fun usePasswordInstead() {
+            _startWithBiometric.value = false
         }
 
         /**

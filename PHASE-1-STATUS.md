@@ -542,8 +542,42 @@ failure that guards against.
 **30 Android tests, 0 failures.** Hilt validating the graph at build time is real verification here
 — it is what proves the two-client split is actually wired the way the comments claim.
 
-Not built: the biometric enrolment screen that would call `currentRefreshToken`/`markSealed`, and
-the real screens behind the tabs. `canApprove` in the shell is still hardcoded pending `/v1/me`.
+### Biometric unlock — the headline feature
+
+A device that has enrolled now starts on the biometric prompt, not the password form. This is the
+thing the product is built to beat: the most-cited complaint about the incumbent is that fingerprint
+login *still* asks for a password afterwards.
+
+**The prompt is cryptographically load-bearing, not a gesture.** `BiometricAuthenticator` passes a
+`Cipher` through `CryptoObject`, and the keystore key is configured with
+`setUserAuthenticationRequired` — so the hardware refuses the operation without a match. There is no
+code path that reads the sealed token without one, because there cannot be. A prompt that returned
+only "the user authenticated" would leave the app deciding what that permits, and any path that
+forgot to ask would be a way around it. The success callback with a null cipher is treated as a
+failure for exactly that reason.
+
+Decisions worth knowing:
+
+- **`BIOMETRIC_STRONG` only.** Weak biometrics cannot back a key requiring user authentication, so a
+  device with only weak hardware would enrol successfully and fail at the moment it mattered.
+- **The negative button is "Use password", not the device credential.** Falling back to the phone's
+  PIN would weaken the guarantee — a shoulder-surfed screen-lock PIN should not unlock payroll.
+- **`onAuthenticationFailed` does not resolve.** One unrecognised finger is a single attempt of
+  several the system allows; resolving there would dismiss the prompt on the first smudge.
+- **A re-enrolled fingerprint is explained, not swallowed.** `KeyPermanentlyInvalidatedException`
+  becomes a message saying the saved sign-in was cleared for safety — otherwise the user concludes
+  the app simply forgot them.
+- **Enrolment is offered immediately after a password sign-in**, because that is the only moment we
+  hold a live refresh token *and* the user has just proved who they are. It is skippable, and
+  declining is remembered only for the session.
+- **`MainActivity` is now a `FragmentActivity`.** `BiometricPrompt` hosts an invisible fragment to
+  survive configuration changes, so `ComponentActivity` is not enough.
+
+**30 Android tests, 0 failures**, and `assembleDebug` still produces APKs for all three ABIs.
+
+Not built: the real screens behind the tabs, and `canApprove` in the shell is still hardcoded
+pending `/v1/me`. The biometric paths themselves cannot be unit-tested here — they need a device
+with hardware — so they are compiled and reasoned about, not proven.
 
 ---
 

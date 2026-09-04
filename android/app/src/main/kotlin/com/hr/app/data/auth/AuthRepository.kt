@@ -3,6 +3,7 @@ package com.hr.app.data.auth
 import android.os.Build
 import com.hr.app.BuildConfig
 import com.hr.client.api.AuthenticationApi
+import com.hr.client.model.BiometricGrantRequest
 import com.hr.client.model.DeviceInfo
 import com.hr.client.model.MfaVerifyRequest
 import com.hr.client.model.PasswordGrantRequest
@@ -107,6 +108,35 @@ class AuthRepository
                     ).orThrow(),
                 )
             }
+
+        /**
+         * Exchanges a biometrically-unsealed refresh token for a session.
+         *
+         * The dedicated endpoint rather than the ordinary refresh: the server records *how* the
+         * session was established, and step-up-protected screens — payslips, bank details — check
+         * that a real user-presence test happened rather than a token replay.
+         *
+         * @return false when the server refuses it. That is expected rather than exceptional: the
+         *   sealed token may have expired, the device may have been revoked from another phone, or
+         *   it may already have been spent. All of them mean the same thing to the user — sign in
+         *   with your password — so the caller does not need to tell them apart.
+         */
+        suspend fun signInWithBiometric(sealedRefreshToken: String): Boolean {
+            val tenantCode = deviceIdProvider.lastTenantCode() ?: return false
+
+            return runCatching {
+                adopt(
+                    api.biometricToken(
+                        tenantCode,
+                        BiometricGrantRequest(
+                            sealedRefreshToken = sealedRefreshToken,
+                            deviceId = deviceIdProvider.deviceId(),
+                        ),
+                    ).orThrow(),
+                )
+                true
+            }.getOrElse { false }
+        }
 
         suspend fun signOut() {
             session.clear()

@@ -1,7 +1,7 @@
 package com.hr.app
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +26,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hr.app.ui.SessionViewModel
+import com.hr.app.ui.auth.BiometricEnrolmentPrompt
+import com.hr.app.ui.auth.BiometricUnlockScreen
 import com.hr.app.ui.auth.SignInScreen
 import com.hr.app.ui.navigation.TopLevelDestination
 import com.hr.app.ui.theme.HrTheme
@@ -39,7 +42,7 @@ import dagger.hilt.android.AndroidEntryPoint
  * edge-to-edge insets, theming and role-adaptive tabs.
  */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must run before setContent so the splash theme hands over cleanly.
         enableEdgeToEdge()
@@ -65,11 +68,35 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun HrApp(viewModel: SessionViewModel = hiltViewModel()) {
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
+    val startWithBiometric by viewModel.startWithBiometric.collectAsStateWithLifecycle()
+    var offerEnrolment by rememberSaveable { mutableStateOf(false) }
 
-    if (signedIn) {
-        HrAppShell(onSignOut = viewModel::signOut)
-    } else {
-        SignInScreen(onSignedIn = viewModel::onSignedIn)
+    when {
+        // Offered once per sign-in, and skippable. Placed before the shell rather than inside
+        // Settings because this is the only moment we hold a live refresh token *and* the user has
+        // just proved who they are — the two things sealing one requires.
+        signedIn && offerEnrolment ->
+            BiometricEnrolmentPrompt(onFinished = { offerEnrolment = false })
+
+        signedIn -> HrAppShell(onSignOut = viewModel::signOut)
+
+        // A device that has enrolled starts here, not on the password form. This is the feature.
+        startWithBiometric ->
+            BiometricUnlockScreen(
+                onUnlocked = {
+                    viewModel.onSignedIn()
+                    offerEnrolment = true
+                },
+                onUsePassword = viewModel::usePasswordInstead,
+            )
+
+        else ->
+            SignInScreen(
+                onSignedIn = {
+                    viewModel.onSignedIn()
+                    offerEnrolment = true
+                },
+            )
     }
 }
 
