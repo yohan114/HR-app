@@ -962,7 +962,7 @@ Reordered from the previous plan, for the reasons above.
 | 4 | P1-BE-25/26 | The home composite, on the foundations above rather than ahead of them. Design already researched. |
 | 5 | P1-AND/IOS-08…12 | Card framework, directory, profile screens |
 | 6 | P1-BE-28…33 | MFA and SSO |
-| 7 | P1-BE-34…40 | Notifications (FCM/APNs, templates, preferences) |
+| 7 | P1-BE-34…40 | Notifications — **schema and decision logic done**, provider adapters not. See below. |
 | 8 | P1-WEB-04…07 | Employee admin screens |
 
 Spun off separately: the tenant module registry behind `enabledModules`, which needs the module
@@ -973,3 +973,46 @@ provisioning a user account, assigning a role, seeding leave entitlement, trigge
 — and modelling it as a POST to this controller would produce a record that is missing all of it.
 Deleting one is never a delete: it is the leaver process, and the record has to survive for
 statutory retention.
+
+---
+
+## Notifications (P1-BE-34…40) — partial
+
+`V9__notifications.sql` plus the decision logic in `com.hr.notification`. **48 tests, 0 failures.**
+
+### Verified here
+
+| Piece | Evidence |
+|---|---|
+| Schema, 5 tenant-scoped tables | `migration-check.mjs`: 9 migrations, 72 tables (70 tenant-scoped), 0 problems |
+| Quiet hours, incl. midnight-crossing and DST | `QuietHoursTest`, 11 tests |
+| Send / defer / suppress per channel | `DeliveryDecisionTest`, 9 tests |
+| Backoff, jitter, dead-lettering | `RetryPolicyTest`, 10 tests |
+| Template rendering and locale fallback | `TemplateRendererTest`, 13 tests |
+| Deep links, incl. rejecting off-scheme links | `DeepLinkTest`, 5 tests |
+| Backend and Android agree on routes | `deeplink-check.mjs`, fault-injected both directions |
+| Module boundaries | `ModuleStructureTest` passes with the new module |
+
+### Not done, and not claimed
+
+- **No FCM or APNs adapter** (P1-BE-35, 36). The decision layer is what a provider adapter is
+  driven *by*; neither has been written, and neither can be tested here without credentials.
+- **No entities, repositories, service or controller.** The tables exist and the decisions are
+  pure functions; nothing yet reads a preference row out of the database and calls them.
+- **No digest job.** `digest_mode` is stored and typed, and nothing batches on it.
+- **No deferred-release worker.** `Defer` returns an instant; nothing sweeps for it yet. Until it
+  exists, a deferral would be a silent drop — which is why nothing calls the dispatcher.
+- **Nothing has run against a real PostgreSQL**, same as the rest of the backend.
+- **Document expiry alerts** (P1-BE-40) not started.
+
+### Two decisions worth knowing about
+
+**`push_token` is not a new table.** The first draft added one, then `user_device.push_token`
+turned out to already exist, already be written on every sign-in, and already carry a partial
+index for this exact lookup. A second table would have been a source of truth nothing writes to;
+the symptom would have been notifications silently going nowhere.
+
+**Quiet hours defer rather than suppress.** Silencing 22:00–07:00 is a request about timing.
+A user who never learns their leave was approved has been failed worse than one woken at 3am.
+`IN_APP` is exempt entirely — it is a list you open, not an interruption, and holding it back
+would make the unread badge disagree with reality until morning.
