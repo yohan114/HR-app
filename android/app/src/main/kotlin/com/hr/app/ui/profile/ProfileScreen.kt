@@ -40,6 +40,13 @@ import java.util.UUID
 fun ProfileScreen(
     employeeId: UUID?,
     onBack: () -> Unit,
+    /**
+     * Null for somebody else's profile.
+     *
+     * Settings belong to the person using the app, so the entry point only appears on their own
+     * record — offering it from a colleague's profile would suggest it configures theirs.
+     */
+    onOpenSettings: (() -> Unit)? = null,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -81,6 +88,17 @@ fun ProfileScreen(
                 items(fields, key = { it.key }) { field ->
                     ProfileRow(label = field.label, value = profile.valueFor(field.key))
                     HorizontalDivider()
+                }
+
+                if (onOpenSettings != null) {
+                    item {
+                        TextButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier.padding(top = Spacing.s3),
+                        ) {
+                            Text("Notification settings")
+                        }
+                    }
                 }
 
                 item {

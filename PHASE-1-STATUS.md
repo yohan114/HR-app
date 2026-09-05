@@ -1016,8 +1016,26 @@ Persistence and the settings API, added after the decision layer:
 - **The `days smallint[]` mapping has never run.** It is the only Postgres array column mapped in
   the codebase, and Hibernate array handling is precisely the kind of thing that compiles and then
   fails on first contact with a database.
-- **No settings UI** on any client. The endpoint exists and the models are generated; no screen
-  calls them.
+- **No settings UI on iOS or web.** Android has one (below); the others have generated models and
+  no screen.
+- **No server-side event catalogue.** The Android screen carries a local list of six event keys,
+  so adding a seventh needs an app release before anyone can configure it — the same problem the
+  form schema already solves for profile fields. A `GET /v1/notification-events` would close it.
+
+### Android settings screen
+
+`NotificationSettingsScreen`, reachable from the Me tab. **13 tests**; Android suite now **50
+tests, 0 failures** (was 37).
+
+The load-bearing part is the sparse↔dense conversion. The server stores only what differs from the
+default, so an absent entry means "unset, therefore default" and not "off". Reading it as off would
+put every switch in the wrong position on first load, then save those wrong positions back the
+moment the user touched anything else — turning a display bug into a silent change to what reaches
+them. `expand`/`collapse` are pure functions with a round-trip test for exactly this.
+
+`defaultEnabled` is duplicated between client and server, which is a genuine coupling: if the two
+drift, a user sees a switch that is on while nothing is sent. Both are tested against the same
+rule, and neither can change without the other's test failing.
 - **No deferred-release worker.** `Defer` returns an instant; nothing sweeps for it yet. Until it
   exists, a deferral would be a silent drop — which is why nothing calls the dispatcher.
 - **Nothing has run against a real PostgreSQL**, same as the rest of the backend.

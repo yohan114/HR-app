@@ -34,6 +34,7 @@ import com.hr.app.ui.auth.BiometricUnlockScreen
 import com.hr.app.ui.auth.SignInScreen
 import com.hr.app.ui.directory.DirectoryScreen
 import com.hr.app.ui.profile.ProfileScreen
+import com.hr.app.ui.settings.NotificationSettingsScreen
 import com.hr.app.ui.navigation.TopLevelDestination
 import com.hr.app.ui.theme.HrTheme
 import com.hr.app.ui.theme.Spacing
@@ -139,6 +140,7 @@ private fun HrAppShell(
     val destinations = remember(canApprove) { TopLevelDestination.forUser(canApprove) }
     var selected by remember { mutableStateOf(TopLevelDestination.HOME) }
     var openProfileId by remember { mutableStateOf<java.util.UUID?>(null) }
+    var openSettings by remember { mutableStateOf(false) }
 
     Scaffold(
         bottomBar = {
@@ -149,6 +151,7 @@ private fun HrAppShell(
                         onClick = {
                             selected = destination
                             openProfileId = null
+                            openSettings = false
                         },
                         icon = {
                             Icon(
@@ -170,6 +173,9 @@ private fun HrAppShell(
             // looked at a result is the fastest way to make a directory unusable.
             val openProfile = openProfileId
             when {
+                openSettings ->
+                    NotificationSettingsScreen(onBack = { openSettings = false })
+
                 openProfile != null ->
                     ProfileScreen(employeeId = openProfile, onBack = { openProfileId = null })
 
@@ -177,7 +183,11 @@ private fun HrAppShell(
                     DirectoryScreen(onOpenProfile = { openProfileId = it })
 
                 selected == TopLevelDestination.ME ->
-                    ProfileScreen(employeeId = null, onBack = onSignOut)
+                    ProfileScreen(
+                        employeeId = null,
+                        onBack = onSignOut,
+                        onOpenSettings = { openSettings = true },
+                    )
 
                 // The remaining tabs land with the modules that fill them. The placeholder names
                 // the destination so the shell is navigable rather than blank.
