@@ -119,3 +119,50 @@
 
 /* Actions in a card header — sits opposite the title on the same baseline. */
 .card__actions { display: flex; gap: var(--space-2); align-items: center; }
+
+/* ---------------------------------------------------------------------------
+   Layout primitives
+   Two of them, deliberately. A vertical rhythm and a horizontal button group
+   cover nearly every arrangement in the console, and a larger set would start
+   competing with the design system that lands in P0-DES-02.
+   --------------------------------------------------------------------------- */
+
+.stack { display: flex; flex-direction: column; gap: var(--space-4); }
+.row   { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+
+/* An MFA secret, for manual entry into an authenticator app. Monospace and
+   generously spaced because it is read off the screen and typed by hand into
+   another device — the one place in the console where character-level legibility
+   beats density. `user-select: all` makes one click select the whole secret. */
+.secret {
+  display: inline-block;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  background: var(--color-surface-variant);
+  border-radius: var(--radius-control);
+  user-select: all;
+}
+
+/* Recovery codes are shown once and are meant to be written down or printed,
+   so they are laid out to be copied accurately rather than to fit a card. */
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recovery-codes code {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-align: center;
+  background: var(--color-surface-variant);
+  border-radius: var(--radius-control);
+  user-select: all;
+}

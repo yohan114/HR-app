@@ -7,6 +7,7 @@ import { Directory } from '@/routes/Directory'
 import { EmployeeProfile } from '@/routes/EmployeeProfile'
 import { Overview } from '@/routes/Overview'
 import { Placeholder } from '@/routes/Placeholder'
+import { Security } from '@/routes/Security'
 import { SignIn } from '@/routes/SignIn'
 import type { ReactNode } from 'react'
 
@@ -60,6 +61,8 @@ export function App() {
                 ids. A client-side guard could only duplicate that decision badly.
               */}
               <Route path="employees/:id" element={<EmployeeProfile />} />
+              {/* Your own account, so no guard: the endpoints take the subject from the token. */}
+              <Route path="security" element={<Security />} />
               <Route
                 path="tenants"
                 element={

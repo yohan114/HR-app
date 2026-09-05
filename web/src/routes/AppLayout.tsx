@@ -17,6 +17,9 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/tenants', label: 'Organisations', permission: 'platform.tenant.view' },
   { to: '/users', label: 'Users', permission: 'identity.user.view' },
   { to: '/roles', label: 'Roles', permission: 'identity.role.view' },
+  // No permission: this is the user's own account. Every authenticated user may manage their own
+  // devices and second factor, and the endpoints take the subject from the token.
+  { to: '/security', label: 'Security' },
 ]
 
 export function AppLayout() {
