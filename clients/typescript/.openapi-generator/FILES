@@ -10,6 +10,7 @@ index.ts
 models/ApiError.ts
 models/ApiErrorResponse.ts
 models/BiometricGrantRequest.ts
+models/ChannelPreference.ts
 models/Device.ts
 models/DeviceInfo.ts
 models/DirectoryEntry.ts
@@ -29,7 +30,10 @@ models/MfaCodeRequest.ts
 models/MfaEnrolment.ts
 models/MfaStatus.ts
 models/MfaVerifyRequest.ts
+models/NotificationChannel.ts
+models/NotificationSettings.ts
 models/PasswordGrantRequest.ts
+models/QuietHoursSettings.ts
 models/RecoveryCodesResponse.ts
 models/ReferenceItem.ts
 models/RefreshTokenRequest.ts

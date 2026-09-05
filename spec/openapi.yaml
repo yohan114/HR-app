@@ -835,6 +835,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/MeResponse'
 
+  /v1/me/notification-settings:
+    get:
+      tags: [Me]
+      summary: The authenticated user's notification preferences and quiet hours
+      description: |
+        Only settings that differ from the default are stored, so an empty `preferences` list means
+        the user has expressed no opinion rather than that everything is off. Clients render the
+        defaults for anything absent: in-app, push and email on, SMS off.
+      operationId: getNotificationSettings
+      responses:
+        '200':
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+    put:
+      tags: [Me]
+      summary: Replace the authenticated user's notification settings
+      description: |
+        A full replace, not a patch. The settings screen holds the whole set on screen, so sending
+        only what changed means a switch flicked twice has to be tracked as unchanged — and a
+        client that gets that wrong silently drops an edit.
+
+        The entire request is validated before anything is written, so a bad entry in a long list
+        cannot leave half of it saved.
+      operationId: replaceNotificationSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationSettings'
+      responses:
+        '200':
+          description: The settings as stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1476,6 +1519,73 @@ components:
         active:
           type: boolean
           description: Inactive items are retained so historical records still resolve, but are not offered for new entry.
+
+    NotificationSettings:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelPreference'
+          description: |
+            Only entries differing from the default are stored and returned. An absent
+            (event, channel) pair is at its default: in-app, push and email on, SMS off.
+        quietHours:
+          $ref: '#/components/schemas/QuietHoursSettings'
+
+    ChannelPreference:
+      type: object
+      required: [eventKey, channel, enabled]
+      properties:
+        eventKey:
+          type: string
+          maxLength: 128
+          description: The event this applies to, e.g. `leave.approved`.
+        channel:
+          $ref: '#/components/schemas/NotificationChannel'
+        enabled: { type: boolean }
+        digestMode:
+          type: string
+          enum: [IMMEDIATE, DIGEST]
+          default: IMMEDIATE
+          description: |
+            DIGEST batches the event into one daily summary. If any channel for an event is set to
+            digest, the whole event is digested — a summary cannot deliver one channel sooner than
+            another, so the stricter reading wins and nothing arrives more often than asked.
+
+    NotificationChannel:
+      type: string
+      enum: [PUSH, EMAIL, IN_APP, SMS]
+
+    QuietHoursSettings:
+      type: object
+      required: [startAt, endAt, timezone]
+      properties:
+        startAt:
+          type: string
+          format: time
+          example: '22:00:00'
+          description: Local wall-clock time. A `startAt` after `endAt` is a window crossing midnight.
+        endAt:
+          type: string
+          format: time
+          example: '07:00:00'
+        timezone:
+          type: string
+          example: Asia/Colombo
+          description: |
+            IANA zone name, not an offset. An offset is wrong twice a year wherever daylight saving
+            applies, and the symptom is notifications arriving an hour into the night for months.
+            Rejected with `VALIDATION_FAILED` if the server cannot resolve it.
+        days:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 7 }
+          description: |
+            Weekdays the window applies to, 1 = Monday. Empty means every day. For a window
+            crossing midnight the day is the one the window *opened* on, so `[5]` with 22:00–07:00
+            covers Friday night into Saturday morning.
+        enabled: { type: boolean, default: true }
 
     MeResponse:
       type: object

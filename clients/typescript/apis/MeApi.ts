@@ -15,12 +15,22 @@
 
 import * as runtime from '../runtime';
 import type {
+  ApiErrorResponse,
   MeResponse,
+  NotificationSettings,
 } from '../models/index';
 import {
+    ApiErrorResponseFromJSON,
+    ApiErrorResponseToJSON,
     MeResponseFromJSON,
     MeResponseToJSON,
+    NotificationSettingsFromJSON,
+    NotificationSettingsToJSON,
 } from '../models/index';
+
+export interface ReplaceNotificationSettingsRequest {
+    notificationSettings: NotificationSettings;
+}
 
 /**
  * MeApi - interface
@@ -43,6 +53,37 @@ export interface MeApiInterface {
      * The authenticated user\'s identity, permissions and enabled modules
      */
     getMe(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MeResponse>;
+
+    /**
+     * Only settings that differ from the default are stored, so an empty `preferences` list means the user has expressed no opinion rather than that everything is off. Clients render the defaults for anything absent: in-app, push and email on, SMS off. 
+     * @summary The authenticated user\'s notification preferences and quiet hours
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MeApiInterface
+     */
+    getNotificationSettingsRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<NotificationSettings>>;
+
+    /**
+     * Only settings that differ from the default are stored, so an empty `preferences` list means the user has expressed no opinion rather than that everything is off. Clients render the defaults for anything absent: in-app, push and email on, SMS off. 
+     * The authenticated user\'s notification preferences and quiet hours
+     */
+    getNotificationSettings(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<NotificationSettings>;
+
+    /**
+     * A full replace, not a patch. The settings screen holds the whole set on screen, so sending only what changed means a switch flicked twice has to be tracked as unchanged — and a client that gets that wrong silently drops an edit.  The entire request is validated before anything is written, so a bad entry in a long list cannot leave half of it saved. 
+     * @summary Replace the authenticated user\'s notification settings
+     * @param {NotificationSettings} notificationSettings 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MeApiInterface
+     */
+    replaceNotificationSettingsRaw(requestParameters: ReplaceNotificationSettingsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<NotificationSettings>>;
+
+    /**
+     * A full replace, not a patch. The settings screen holds the whole set on screen, so sending only what changed means a switch flicked twice has to be tracked as unchanged — and a client that gets that wrong silently drops an edit.  The entire request is validated before anything is written, so a bad entry in a long list cannot leave half of it saved. 
+     * Replace the authenticated user\'s notification settings
+     */
+    replaceNotificationSettings(requestParameters: ReplaceNotificationSettingsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<NotificationSettings>;
 
 }
 
@@ -84,6 +125,88 @@ export class MeApi extends runtime.BaseAPI implements MeApiInterface {
      */
     async getMe(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MeResponse> {
         const response = await this.getMeRaw(initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Only settings that differ from the default are stored, so an empty `preferences` list means the user has expressed no opinion rather than that everything is off. Clients render the defaults for anything absent: in-app, push and email on, SMS off. 
+     * The authenticated user\'s notification preferences and quiet hours
+     */
+    async getNotificationSettingsRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<NotificationSettings>> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/me/notification-settings`,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => NotificationSettingsFromJSON(jsonValue));
+    }
+
+    /**
+     * Only settings that differ from the default are stored, so an empty `preferences` list means the user has expressed no opinion rather than that everything is off. Clients render the defaults for anything absent: in-app, push and email on, SMS off. 
+     * The authenticated user\'s notification preferences and quiet hours
+     */
+    async getNotificationSettings(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<NotificationSettings> {
+        const response = await this.getNotificationSettingsRaw(initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * A full replace, not a patch. The settings screen holds the whole set on screen, so sending only what changed means a switch flicked twice has to be tracked as unchanged — and a client that gets that wrong silently drops an edit.  The entire request is validated before anything is written, so a bad entry in a long list cannot leave half of it saved. 
+     * Replace the authenticated user\'s notification settings
+     */
+    async replaceNotificationSettingsRaw(requestParameters: ReplaceNotificationSettingsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<NotificationSettings>> {
+        if (requestParameters['notificationSettings'] == null) {
+            throw new runtime.RequiredError(
+                'notificationSettings',
+                'Required parameter "notificationSettings" was null or undefined when calling replaceNotificationSettings().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/me/notification-settings`,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+            body: NotificationSettingsToJSON(requestParameters['notificationSettings']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => NotificationSettingsFromJSON(jsonValue));
+    }
+
+    /**
+     * A full replace, not a patch. The settings screen holds the whole set on screen, so sending only what changed means a switch flicked twice has to be tracked as unchanged — and a client that gets that wrong silently drops an edit.  The entire request is validated before anything is written, so a bad entry in a long list cannot leave half of it saved. 
+     * Replace the authenticated user\'s notification settings
+     */
+    async replaceNotificationSettings(requestParameters: ReplaceNotificationSettingsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<NotificationSettings> {
+        const response = await this.replaceNotificationSettingsRaw(requestParameters, initOverrides);
         return await response.value();
     }
 

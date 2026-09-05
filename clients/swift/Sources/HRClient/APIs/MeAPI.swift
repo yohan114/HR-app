@@ -48,4 +48,80 @@ open class MeAPI {
 
         return localVariableRequestBuilder.init(method: "GET", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
     }
+
+    /**
+     The authenticated user's notification preferences and quiet hours
+     
+     - returns: NotificationSettings
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func getNotificationSettings() async throws -> NotificationSettings {
+        return try await getNotificationSettingsWithRequestBuilder().execute().body
+    }
+
+    /**
+     The authenticated user's notification preferences and quiet hours
+     - GET /v1/me/notification-settings
+     - Only settings that differ from the default are stored, so an empty `preferences` list means the user has expressed no opinion rather than that everything is off. Clients render the defaults for anything absent: in-app, push and email on, SMS off. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - returns: RequestBuilder<NotificationSettings> 
+     */
+    open class func getNotificationSettingsWithRequestBuilder() -> RequestBuilder<NotificationSettings> {
+        let localVariablePath = "/v1/me/notification-settings"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters: [String: Any]? = nil
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            :
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<NotificationSettings>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "GET", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
+     Replace the authenticated user's notification settings
+     
+     - parameter notificationSettings: (body)  
+     - returns: NotificationSettings
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func replaceNotificationSettings(notificationSettings: NotificationSettings) async throws -> NotificationSettings {
+        return try await replaceNotificationSettingsWithRequestBuilder(notificationSettings: notificationSettings).execute().body
+    }
+
+    /**
+     Replace the authenticated user's notification settings
+     - PUT /v1/me/notification-settings
+     - A full replace, not a patch. The settings screen holds the whole set on screen, so sending only what changed means a switch flicked twice has to be tracked as unchanged — and a client that gets that wrong silently drops an edit.  The entire request is validated before anything is written, so a bad entry in a long list cannot leave half of it saved. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - parameter notificationSettings: (body)  
+     - returns: RequestBuilder<NotificationSettings> 
+     */
+    open class func replaceNotificationSettingsWithRequestBuilder(notificationSettings: NotificationSettings) -> RequestBuilder<NotificationSettings> {
+        let localVariablePath = "/v1/me/notification-settings"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters = JSONEncodingHelper.encodingParameters(forEncodableObject: notificationSettings)
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            "Content-Type": "application/json",
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<NotificationSettings>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "PUT", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
 }

@@ -993,13 +993,31 @@ statutory retention.
 | Backend and Android agree on routes | `deeplink-check.mjs`, fault-injected both directions |
 | Module boundaries | `ModuleStructureTest` passes with the new module |
 
+### Also done
+
+Persistence and the settings API, added after the decision layer:
+
+| Piece | Evidence |
+|---|---|
+| `NotificationPreference` / `NotificationQuietHoursEntity` | Composite natural keys, `EntitySchemaTest` passes |
+| `NotificationSettingsService` — defaults, validation, context assembly | `NotificationSettingsServiceTest`, 15 tests |
+| `GET`/`PUT /v1/me/notification-settings` | In the spec, `ApiContractTest` passes, generated into all three clients |
+
+**Backend suite is now 283 tests**, 274 passing; the 9 failures are still only `TenantIsolationTest`.
+
 ### Not done, and not claimed
 
 - **No FCM or APNs adapter** (P1-BE-35, 36). The decision layer is what a provider adapter is
   driven *by*; neither has been written, and neither can be tested here without credentials.
-- **No entities, repositories, service or controller.** The tables exist and the decisions are
-  pure functions; nothing yet reads a preference row out of the database and calls them.
-- **No digest job.** `digest_mode` is stored and typed, and nothing batches on it.
+- **Nothing dispatches.** `contextFor` assembles what `decideDelivery` needs and no caller joins
+  them yet — there is no code path from a domain event to a notification row.
+- **No digest job.** `digest_mode` is stored, typed, and honoured by `contextFor`; nothing batches
+  on it.
+- **The `days smallint[]` mapping has never run.** It is the only Postgres array column mapped in
+  the codebase, and Hibernate array handling is precisely the kind of thing that compiles and then
+  fails on first contact with a database.
+- **No settings UI** on any client. The endpoint exists and the models are generated; no screen
+  calls them.
 - **No deferred-release worker.** `Defer` returns an instant; nothing sweeps for it yet. Until it
   exists, a deferral would be a silent drop — which is why nothing calls the dispatcher.
 - **Nothing has run against a real PostgreSQL**, same as the rest of the backend.
