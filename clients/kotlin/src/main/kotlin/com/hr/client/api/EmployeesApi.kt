@@ -8,9 +8,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 import com.hr.client.model.ApiErrorResponse
+import com.hr.client.model.EmployeeDocumentItem
 import com.hr.client.model.EmployeeProfile
 import com.hr.client.model.EmployeeUpdate
 import com.hr.client.model.FormSchema
+import com.hr.client.model.RenewDocumentRequest
+import com.hr.client.model.RenewDocumentResponse
 
 interface EmployeesApi {
     /**
@@ -43,6 +46,19 @@ interface EmployeesApi {
     suspend fun getEmployeeProfile(@Path("id") id: java.util.UUID): Response<EmployeeProfile>
 
     /**
+     * GET v1/employees/me/documents
+     * Retrieve statutory and compliance documents for current employee
+     * Returns active identity, statutory, and compliance documents belonging to the authenticated employee, including days remaining until expiry and compliance statuses. 
+     * Responses:
+     *  - 200: Employee documents retrieved
+     *  - 401: Authentication required or token invalid
+     *
+     * @return [kotlin.collections.List<EmployeeDocumentItem>]
+     */
+    @GET("v1/employees/me/documents")
+    suspend fun getOwnDocuments(): Response<kotlin.collections.List<EmployeeDocumentItem>>
+
+    /**
      * GET v1/employees/me
      * The caller&#39;s own employee profile
      * A separate path from &#x60;/v1/employees/{id}&#x60; rather than making the client substitute its own id: the app opens this on launch, before it necessarily knows the employee id.  Returns &#x60;404 NO_EMPLOYEE_RECORD&#x60; for a user account that is not linked to an employee — a platform operator or an integration credential. 
@@ -54,6 +70,22 @@ interface EmployeesApi {
      */
     @GET("v1/employees/me")
     suspend fun getOwnEmployeeProfile(): Response<EmployeeProfile>
+
+    /**
+     * POST v1/employees/me/documents/renew
+     * Submit renewal or replacement for a compliance document
+     * Submits updated document particulars (new expiry date, document number, and optional attachment) and archives the previous document record as REPLACED. 
+     * Responses:
+     *  - 200: Document renewed successfully
+     *  - 400: Malformed request, or a field value that could not be interpreted
+     *  - 401: Authentication required or token invalid
+     *  - 409: The record changed since the caller loaded it. `details` carries `expected` and `actual` versions so the client can offer a meaningful choice rather than \"please try again\". 
+     *
+     * @param renewDocumentRequest 
+     * @return [RenewDocumentResponse]
+     */
+    @POST("v1/employees/me/documents/renew")
+    suspend fun renewOwnDocument(@Body renewDocumentRequest: RenewDocumentRequest): Response<RenewDocumentResponse>
 
     /**
      * PATCH v1/employees/{id}

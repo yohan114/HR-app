@@ -402,7 +402,7 @@ CREATE TABLE employee_bank_account
     -- enforced in the application — a check constraint cannot express it.
     split_type     varchar(16)   NOT NULL DEFAULT 'REMAINDER',
     split_value    numeric(19, 6),
-    currency       char(3),
+    currency       varchar(3),
     valid_from     date          NOT NULL DEFAULT CURRENT_DATE,
     valid_to       date,
 
@@ -441,7 +441,7 @@ CREATE TABLE employee_document
     doc_number_enc    text,
     issue_date        date,
     expiry_date       date,
-    issuing_country   char(2),
+    issuing_country   varchar(2),
     attachment_key    varchar(512),
     -- Drives the expiry reminder job. A visa that lapses unnoticed can stop
     -- someone legally working, so the lead time is per-document rather than a

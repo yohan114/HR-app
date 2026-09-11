@@ -7,6 +7,7 @@ import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
@@ -34,6 +35,7 @@ import java.util.UUID
 @RequestMapping("/v1/employees")
 class EmployeeController(
     private val employeeService: EmployeeService,
+    private val employeeDocumentService: EmployeeDocumentService,
 ) {
     @GetMapping("/{id}")
     fun profile(
@@ -61,6 +63,19 @@ class EmployeeController(
                 )
         return employeeService.profile(caller, employeeId)
     }
+
+    @GetMapping("/me/documents")
+    fun ownDocuments(
+        @AuthenticationPrincipal jwt: Jwt,
+    ): List<EmployeeDocumentResponseDto> =
+        employeeDocumentService.getOwnDocuments(Caller.from(jwt))
+
+    @PostMapping("/me/documents/renew")
+    fun renewOwnDocument(
+        @AuthenticationPrincipal jwt: Jwt,
+        @RequestBody request: RenewDocumentCommand,
+    ): RenewDocumentResult =
+        employeeDocumentService.renewDocument(Caller.from(jwt), request)
 
     @GetMapping("/{id}/form")
     fun editForm(

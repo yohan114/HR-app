@@ -34,6 +34,79 @@ npm run build
 
 ---
 
+## Demo mode — running the whole console with no backend
+
+```bash
+npm run demo
+```
+
+Opens on `http://localhost:5173` with **no server required**: the Vite dev server answers every
+`/v1` request itself, from in-memory fixtures in [`demo/`](demo/). The React application is not
+modified or aware of this in any way — it makes real `fetch` calls through the generated client,
+refreshes real tokens and handles real error envelopes. Only the thing on the other end of the
+socket is different.
+
+Equivalent, if you would rather set a flag than a mode: `VITE_DEMO=1 npx vite`. The npm script uses
+`--mode demo` because `VITE_DEMO=1 vite` is bash syntax and does not work in PowerShell or
+`cmd.exe`.
+
+### Signing in
+
+The same organisation and accounts as the backend's `LocalDemoSeeder`, so a demo run and a local
+backend run look like the same company. Organisation code **`demo`**.
+
+| Username | What it is there to show |
+|---|---|
+| `admin` | Every permission; linked to the CEO's record. Holds explicit grants over date of birth and personal email, so it can edit them. |
+| `hr` | HR_ADMIN. May edit anybody's record and still may **not** see their date of birth — the separation the field-permission design exists for. |
+| `manager` | `employee.view` without `employee.view.all`. Sees its own reporting subtree; anyone else is a 404, not a 403. |
+| `employee` | The directory only. Its own record is authorised by ownership, not by a grant; a colleague's profile is a 404. |
+| `locked` | Always refused with `403 ACCOUNT_LOCKED`, so the sign-in error path can be seen. |
+
+**Any non-empty password works.** There are no password hashes in the fixtures to check one
+against, and a demo that can lock you out of itself over a typo is a demo nobody runs twice.
+`DemoPassw0rd!` is what the backend seeder uses and what the startup banner quotes.
+
+The same details are printed to the terminal every time the dev server starts, so nobody has to
+find this file first.
+
+### What is stateful
+
+Everything is in memory and resets when the dev server restarts.
+
+- Signing in issues a session. Refresh tokens rotate and are single-use; presenting a spent one
+  answers `TOKEN_REUSE_DETECTED` and revokes the family, exactly as the real server does.
+- `PATCH`ing a profile changes what the next `GET` returns, and bumps `version` — so opening the
+  same profile in two tabs and saving both gives you a real `409 STALE_VERSION`.
+- Revoking a device removes it from the list. Revoking **this browser's** device ends the session
+  at the next reload rather than mid-click, because the contract says an already-issued access
+  token stays valid for its full fifteen minutes.
+- Enrolling in two-factor flips the status and returns recovery codes **once**. Any six digits are
+  accepted; `000000` is always rejected, so `MFA_INVALID_CODE` is reachable.
+- Saving notification settings persists for the session, stored sparsely — only what differs from
+  the defaults, as the server stores it.
+
+There are 32 employees over four reporting levels, one of whom has left (and is therefore excluded
+from the directory), so the directory paginates at the console's page size of 25 and
+`direct reports` returns something.
+
+### Why it is a dev-server plugin and not a flag in the app
+
+Because a flag in the app puts the fixtures in `src/`, which puts them in the production bundle,
+where the only thing standing between a demo company and a customer is an environment variable
+nobody set on purpose. Three independent things stop that here:
+
+1. Nothing under `src/` imports anything under `demo/`. The only importer is `vite.config.ts`,
+   which Rollup never sees — there is no module graph from the application entry point to these
+   fixtures.
+2. The plugin declares `apply: 'serve'`, so Vite will not run it during `vite build`.
+3. Its only hook is `configureServer`, which exists solely on the dev server. It has no
+   `transform`, no `resolveId` and no `generateBundle` — nothing that could emit a byte.
+
+`npm run build` and `VITE_DEMO=1 npx vite build --mode demo` produce byte-identical bundles.
+
+---
+
 ## Why a proxy rather than pointing at localhost:8080
 
 The browser then sees same-origin requests, so no CORS configuration is needed in development and

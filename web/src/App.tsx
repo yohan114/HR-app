@@ -3,12 +3,31 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { LoadingState } from '@/components/ui'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { AppLayout } from '@/routes/AppLayout'
+import { Attendance } from '@/routes/Attendance'
 import { Directory } from '@/routes/Directory'
 import { EmployeeProfile } from '@/routes/EmployeeProfile'
+import { Leave } from '@/routes/Leave'
+import { NotificationSettings } from '@/routes/NotificationSettings'
 import { Overview } from '@/routes/Overview'
-import { Placeholder } from '@/routes/Placeholder'
+import { Payroll } from '@/routes/Payroll'
+import { Recruitment } from '@/routes/Recruitment'
+import { Roles } from '@/routes/Roles'
 import { Security } from '@/routes/Security'
 import { SignIn } from '@/routes/SignIn'
+import { Tenants } from '@/routes/Tenants'
+import { Timesheets } from '@/routes/Timesheets'
+import { Users } from '@/routes/Users'
+import { Documents } from '@/routes/Documents'
+import { Performance } from '@/routes/Performance'
+import { Onboarding } from '@/routes/Onboarding'
+import { FormBuilder } from '@/routes/FormBuilder'
+import { FormulaBuilder } from '@/routes/FormulaBuilder'
+import { ReportBuilder } from '@/routes/ReportBuilder'
+import { BatchTools } from '@/routes/BatchTools'
+import { Training } from '@/routes/Training'
+import { Loans } from '@/routes/Loans'
+import { Benefits } from '@/routes/Benefits'
+import { Disciplinary } from '@/routes/Disciplinary'
 import type { ReactNode } from 'react'
 
 const queryClient = new QueryClient({
@@ -63,39 +82,27 @@ export function App() {
               <Route path="employees/:id" element={<EmployeeProfile />} />
               {/* Your own account, so no guard: the endpoints take the subject from the token. */}
               <Route path="security" element={<Security />} />
-              <Route
-                path="tenants"
-                element={
-                  <Placeholder
-                    title="Organisations"
-                    permission="platform.tenant.view"
-                    blockedBy="P0-WEB-05"
-                    description="Create and configure organisations, and toggle which modules each one has."
-                  />
-                }
-              />
-              <Route
-                path="users"
-                element={
-                  <Placeholder
-                    title="Users"
-                    permission="identity.user.view"
-                    blockedBy="P0-WEB-06"
-                    description="Create user accounts, assign roles, reset passwords and revoke devices."
-                  />
-                }
-              />
-              <Route
-                path="roles"
-                element={
-                  <Placeholder
-                    title="Roles"
-                    permission="identity.role.view"
-                    blockedBy="P0-WEB-07"
-                    description="Compose roles from the permission catalogue and scope them to populations."
-                  />
-                }
-              />
+              <Route path="recruitment" element={<Recruitment />} />
+              <Route path="documents" element={<Documents />} />
+              <Route path="timesheets" element={<Timesheets />} />
+              <Route path="performance" element={<Performance />} />
+              <Route path="onboarding" element={<Onboarding />} />
+              <Route path="leave" element={<Leave />} />
+              <Route path="attendance" element={<Attendance />} />
+              <Route path="payroll" element={<Payroll />} />
+              <Route path="training" element={<Training />} />
+              <Route path="loans" element={<Loans />} />
+              <Route path="benefits" element={<Benefits />} />
+              <Route path="disciplinary" element={<Disciplinary />} />
+              <Route path="forms-builder" element={<FormBuilder />} />
+              <Route path="forms-config" element={<FormBuilder />} />
+              <Route path="formula-builder" element={<FormulaBuilder />} />
+              <Route path="report-builder" element={<ReportBuilder />} />
+              <Route path="batch-tools" element={<BatchTools />} />
+              <Route path="notifications" element={<NotificationSettings />} />
+              <Route path="tenants" element={<Tenants />} />
+              <Route path="users" element={<Users />} />
+              <Route path="roles" element={<Roles />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

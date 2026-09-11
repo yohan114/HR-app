@@ -53,6 +53,7 @@ ios/DerivedData/
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.pem
 *.p12
 *.p8
@@ -71,6 +72,8 @@ infra/**/.terraform/
 coverage/
 .nyc_output/
 *.hprof
+backend/scratch/
+scratch/
 
 # Android — SDK location is per-machine
 android/local.properties
@@ -88,3 +91,7 @@ infra/k8s/overlays/*/generated/
 
 # Infra check dependencies
 infra/scripts/node_modules/
+
+# Local development sandbox: embedded PostgreSQL cluster and its client.
+# Machine-specific and large; never committed.
+.localdev/

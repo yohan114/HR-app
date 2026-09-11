@@ -74,8 +74,8 @@ CREATE TABLE company
     code             varchar(64)  NOT NULL,
     name             varchar(255) NOT NULL,
     legal_name       varchar(255),
-    country_code     char(2)      NOT NULL,
-    currency         char(3)      NOT NULL,
+    country_code     varchar(2)   NOT NULL,
+    currency         varchar(3)   NOT NULL,
     tax_registration varchar(64),
     -- Tenant-defined fields, driven by field_definition (V7). JSONB rather than
     -- EAV: a single row read returns everything, and GIN indexing makes the
@@ -175,7 +175,7 @@ CREATE TABLE salary_grade
     min_amount  numeric(19, 6),
     mid_amount  numeric(19, 6),
     max_amount  numeric(19, 6),
-    currency    char(3),
+    currency    varchar(3),
     sequence    integer        NOT NULL DEFAULT 0,
     active      boolean        NOT NULL DEFAULT true,
 
@@ -330,7 +330,7 @@ CREATE TABLE bank
     code         varchar(64)  NOT NULL,
     name         varchar(255) NOT NULL,
     swift        varchar(11),
-    country_code char(2),
+    country_code varchar(2),
     active       boolean      NOT NULL DEFAULT true,
 
     created_at   timestamptz  NOT NULL DEFAULT now(),

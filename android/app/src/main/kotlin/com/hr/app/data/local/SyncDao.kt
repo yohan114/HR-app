@@ -49,6 +49,9 @@ interface OutboxDao {
     @Query("SELECT COUNT(*) FROM outbox WHERE state IN ('PENDING', 'IN_FLIGHT')")
     fun pendingCount(): Flow<Int>
 
+    @Query("SELECT aggregateType, aggregateId FROM outbox WHERE state IN ('PENDING', 'IN_FLIGHT')")
+    fun pendingAggregateKeys(): Flow<List<PendingAggregateKey>>
+
     @Query("SELECT * FROM outbox WHERE state IN ('REJECTED', 'FAILED') ORDER BY createdAt DESC")
     fun problems(): Flow<List<OutboxEntry>>
 

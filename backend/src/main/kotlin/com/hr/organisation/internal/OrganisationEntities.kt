@@ -192,3 +192,15 @@ class SalaryGrade(
     fun contains(amount: BigDecimal): Boolean =
         (minAmount == null || amount >= minAmount) && (maxAmount == null || amount <= maxAmount)
 }
+
+@org.springframework.stereotype.Repository
+interface DepartmentRepository : org.springframework.data.jpa.repository.JpaRepository<Department, UUID>
+
+@org.springframework.stereotype.Repository
+interface DesignationRepository : org.springframework.data.jpa.repository.JpaRepository<Designation, UUID>
+
+@org.springframework.stereotype.Repository
+interface LocationRepository : org.springframework.data.jpa.repository.JpaRepository<Location, UUID>
+
+@org.springframework.stereotype.Repository
+interface SalaryGradeRepository : org.springframework.data.jpa.repository.JpaRepository<SalaryGrade, UUID>

@@ -1,14 +1,19 @@
 # Local development profile — used with the Docker Compose stack in ../docker-compose.yml
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/hr
+    url: jdbc:postgresql://localhost:5433/hr
     username: hr_app_login
     password: hr_app_login
 
   flyway:
-    url: jdbc:postgresql://localhost:5432/hr
+    url: jdbc:postgresql://localhost:5433/hr
     user: hr_owner
     password: hr_owner
+
+management:
+  health:
+    redis:
+      enabled: false
 
   jpa:
     properties:

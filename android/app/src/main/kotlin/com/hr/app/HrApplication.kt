@@ -3,6 +3,7 @@ package com.hr.app
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.hr.app.notification.HrNotificationManager
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -18,6 +19,14 @@ import javax.inject.Inject
 class HrApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
+
+    @Inject
+    lateinit var notificationManager: HrNotificationManager
+
+    override fun onCreate() {
+        super.onCreate()
+        notificationManager.initNotificationChannels()
+    }
 
     override val workManagerConfiguration: Configuration
         get() =

@@ -90,4 +90,4 @@ ENV TZ=UTC \
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
     CMD curl -fsS http://localhost:8080/actuator/health/liveness || exit 1
 
-ENTRYPOINT ["java", "-jar", "application.jar"]
+ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]

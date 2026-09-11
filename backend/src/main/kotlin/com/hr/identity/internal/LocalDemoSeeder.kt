@@ -59,28 +59,47 @@ class LocalDemoSeeder {
         transactionTemplate: TransactionTemplate,
         passwordEncoder: PasswordEncoder,
     ) = ApplicationRunner {
-        transactionTemplate.execute {
+        // Two transactions, and the nesting matters more than it looks.
+        //
+        // `TenantAwareDataSource` binds `app.tenant_id` when a connection is *checked out*, which
+        // is when the transaction begins. Entering the tenant context inside an already-open
+        // transaction is therefore too late: the connection was bound to the empty tenant, every
+        // policy predicate evaluates to NULL, and the first insert into a tenant-scoped table is
+        // rejected with "new row violates row-level security policy". So the context has to be
+        // entered around the transaction, not within it — which means two, because the tenant id
+        // is not known until the first one has run.
+        //
+        // Found by running this against a real database for the first time. It is worth stating
+        // plainly: the failure was RLS working correctly, not RLS being wrong.
+        val tenantId =
             // The tenant registry is not tenant-scoped, so this runs unbound.
-            val tenantId =
-                TenantContext.runWithoutTenant {
+            TenantContext.runWithoutTenant {
+                transactionTemplate.execute {
                     jdbc.query(
                         "SELECT id FROM tenant WHERE code = ?",
                         { rs, _ -> rs.getObject("id", UUID::class.java) },
                         DEMO_TENANT_CODE,
                     ).firstOrNull() ?: createTenant(jdbc)
                 }
+            } ?: error("Could not find or create the demo tenant")
 
-            // Everything below is tenant-scoped, so it must run bound or RLS returns nothing.
-            TenantContext.runAs(handleFor(tenantId)) {
-                jdbc.update("SELECT provision_tenant_defaults(?)", tenantId)
+        // Everything below is tenant-scoped, so it must run bound or RLS returns nothing.
+        TenantContext.runAs(handleFor(tenantId)) {
+            transactionTemplate.execute {
+                // `query`, not `update`: the function RETURNS void, but calling it still means
+                // issuing a SELECT, and a SELECT produces a result set. `update` rejects that with
+                // "A result was returned when none was expected" — so the call had never actually
+                // worked, on any database, until one existed to try it against.
+                jdbc.query("SELECT provision_tenant_defaults(?)", { _, _ -> null }, tenantId)
 
                 if (alreadySeeded(jdbc)) {
                     log.info("Demo data already present for tenant '{}'", DEMO_TENANT_CODE)
-                    return@runAs
+                    return@execute
                 }
 
                 val org = seedOrganisation(jdbc, tenantId)
                 val employees = seedEmployees(jdbc, tenantId, org)
+                seedDocuments(jdbc, tenantId, employees)
                 seedUsers(jdbc, passwordEncoder, tenantId, employees)
                 announce()
             }
@@ -287,6 +306,46 @@ class LocalDemoSeeder {
 
         log.info("Seeded {} employees across 3 reporting levels", workforce.size)
         return ids
+    }
+
+    private fun seedDocuments(
+        jdbc: JdbcTemplate,
+        tenantId: UUID,
+        employees: Map<String, UUID>,
+    ) {
+        val today = LocalDate.now()
+        val docs =
+            listOf(
+                Triple("E004", "VISA", today.plusDays(14)),
+                Triple("E004", "PASSPORT", today.plusDays(300)),
+                Triple("E002", "WORK_PERMIT", today.minusDays(5)),
+            )
+
+        for ((empCode, docType, expiryDate) in docs) {
+            val empId = employees[empCode] ?: continue
+            val status =
+                if (expiryDate.isBefore(today)) {
+                    "EXPIRED"
+                } else if (expiryDate.isBefore(today.plusDays(30))) {
+                    "EXPIRING"
+                } else {
+                    "VALID"
+                }
+            jdbc.update(
+                """
+                INSERT INTO employee_document (id, tenant_id, employee_id, doc_type, expiry_date,
+                                               alert_days_before, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 30, ?, now(), now())
+                """.trimIndent(),
+                UUID.randomUUID(),
+                tenantId,
+                empId,
+                docType,
+                expiryDate,
+                status,
+            )
+        }
+        log.info("Seeded {} demo employee documents", docs.size)
     }
 
     /**

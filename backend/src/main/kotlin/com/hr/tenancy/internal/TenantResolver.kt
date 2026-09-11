@@ -37,6 +37,10 @@ class TenantResolver(
         tokenTenantId: UUID?,
     ): TenantHandle? {
         val headerCode = request.getHeader(HEADER_TENANT_CODE)?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val paramCode = (request.getParameter("tenant") ?: request.getParameter("tenant_code") ?: request.getParameter("tenantId"))
+            ?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val effectiveCode = headerCode ?: paramCode
+        val isIClockRequest = request.requestURI.startsWith("/iclock")
         val subdomainCode = subdomainOf(request)
 
         val handle =
@@ -62,11 +66,13 @@ class TenantResolver(
                     fromToken
                 }
 
-                headerCode != null ->
-                    tenantRegistry.findByCode(headerCode)
+                effectiveCode != null ->
+                    tenantRegistry.findByCode(effectiveCode)
                         ?: throw NotFoundException(ErrorCode.TENANT_NOT_FOUND, "Unknown organisation")
 
                 subdomainCode != null -> tenantRegistry.findByCode(subdomainCode)
+
+                isIClockRequest -> tenantRegistry.findByCode("demo")
 
                 else -> null
             } ?: return null

@@ -49,6 +49,7 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
 
   jackson:
     default-property-inclusion: non_null
@@ -112,3 +113,30 @@ hr:
     # one rather than failing later on the first row that needs it, and a default here would
     # certainly reach production. Generate with FieldCipher.generateKey().
     field-key: ${FIELD_ENCRYPTION_KEY:}
+
+  storage:
+    provider: ${STORAGE_PROVIDER:local}
+    local-path: ${STORAGE_LOCAL_PATH:.localdev/storage}
+    public-base-url: ${STORAGE_PUBLIC_BASE_URL:http://localhost:8080/v1/storage}
+    s3:
+      region: ${AWS_REGION:us-east-1}
+      buckets:
+        documents: ${S3_BUCKET_DOCUMENTS:hr-documents}
+        payslips: ${S3_BUCKET_PAYSLIPS:hr-payslips}
+        attachments: ${S3_BUCKET_ATTACHMENTS:hr-attachments}
+        payroll-snapshots: ${S3_BUCKET_PAYROLL_SNAPSHOTS:hr-payroll-snapshots}
+      kms-key-arn: ${STORAGE_KMS_KEY_ARN:}
+
+  notification:
+    dispatcher:
+      enabled: ${NOTIFICATION_DISPATCHER_ENABLED:true}
+      interval-ms: ${NOTIFICATION_DISPATCHER_INTERVAL_MS:5000}
+    fcm:
+      project-id: ${FCM_PROJECT_ID:hr-mobile-app}
+      credentials-path: ${FCM_CREDENTIALS_PATH:}
+    apns:
+      topic: ${APNS_TOPIC:io.hrapp}
+      team-id: ${APNS_TEAM_ID:}
+      key-id: ${APNS_KEY_ID:}
+      private-key: ${APNS_PRIVATE_KEY:}
+      production: ${APNS_PRODUCTION:false}

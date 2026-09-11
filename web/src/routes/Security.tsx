@@ -12,10 +12,17 @@ import type { Device, MfaStatus } from '@hr/client'
  * there is no permission gate — every authenticated user may manage their own security, and the
  * endpoints derive the subject from the token rather than from a path parameter.
  */
+import { Link } from 'react-router-dom'
+
 export function Security() {
   return (
     <div className="stack">
-      <h1>Security</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <h1 style={{ margin: 0 }}>Security</h1>
+        <Link to="/notifications" className="btn btn--secondary" style={{ textDecoration: 'none' }}>
+          Notification Preferences &rarr;
+        </Link>
+      </div>
       <MfaSection />
       <DeviceSection />
     </div>

@@ -115,7 +115,7 @@ CREATE TABLE mutation_log
     device_id       varchar(128),
     idempotency_key varchar(128) NOT NULL,
     endpoint        varchar(255) NOT NULL,
-    payload_hash    char(64)     NOT NULL,
+    payload_hash    varchar(64)  NOT NULL,
     status          varchar(16)  NOT NULL DEFAULT 'IN_PROGRESS',
     response_status smallint,
     response_body   jsonb,

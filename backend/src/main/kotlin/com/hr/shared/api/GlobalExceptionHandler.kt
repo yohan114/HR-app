@@ -152,9 +152,9 @@ class GlobalExceptionHandler {
             ),
         )
 
-    @ExceptionHandler(NoHandlerFoundException::class)
+    @ExceptionHandler(NoHandlerFoundException::class, org.springframework.web.servlet.resource.NoResourceFoundException::class)
     fun handleNoHandler(
-        ex: NoHandlerFoundException,
+        ex: Exception,
         request: HttpServletRequest,
     ): ResponseEntity<ApiErrorResponse> =
         ResponseEntity.status(HttpStatus.NOT_FOUND).body(

@@ -3,6 +3,7 @@ package com.hr.app.data.sync
 import com.hr.app.data.local.OutboxDao
 import com.hr.app.data.local.OutboxEntry
 import com.hr.app.data.local.OutboxState
+import com.hr.app.data.local.PendingAggregateKey
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
@@ -24,6 +25,8 @@ class Outbox
         private val clock: Clock,
     ) {
         val pendingCount: Flow<Int> = dao.pendingCount()
+
+        val pendingAggregateKeys: Flow<List<PendingAggregateKey>> = dao.pendingAggregateKeys()
 
         val problems: Flow<List<OutboxEntry>> = dao.problems()
 

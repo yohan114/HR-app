@@ -7,7 +7,8 @@
   "scripts": {
     "check:terraform": "node tf-static-check.mjs ../terraform",
     "check:alerts": "node alert-rules-check.mjs ../k8s/observability",
-    "check": "npm run check:terraform && npm run check:alerts"
+    "check:packaging": "node validate-docker-packaging.mjs",
+    "check": "npm run check:terraform && npm run check:alerts && npm run check:packaging"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

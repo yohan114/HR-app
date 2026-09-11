@@ -8,6 +8,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
@@ -36,11 +37,17 @@ object AuthModule {
     @Provides
     @Singleton
     @UnauthenticatedApi
-    fun provideUnauthenticatedClient(): OkHttpClient =
+    fun provideUnauthenticatedClient(
+        variantInterceptors: Set<@JvmSuppressWildcards Interceptor>,
+    ): OkHttpClient =
         OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+            // Empty in release — see `NetworkInterceptorsModule`. Sign-in has to be reachable in a
+            // debug build with no server, and this client is the only route to it: the endpoints
+            // that establish a session deliberately do not go through the app's main client.
+            .apply { variantInterceptors.forEach(::addInterceptor) }
             .build()
 
     @Provides

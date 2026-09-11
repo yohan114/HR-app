@@ -2,6 +2,7 @@ package com.hr.app.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hr.app.notification.HrNotificationManager
 import com.hr.client.api.MeApi
 import com.hr.client.model.NotificationChannel
 import com.hr.client.model.QuietHoursSettings
@@ -34,12 +35,25 @@ class NotificationSettingsViewModel
     @Inject
     constructor(
         private val meApi: MeApi,
+        private val notificationManager: HrNotificationManager,
     ) : ViewModel() {
         private val _state = MutableStateFlow(NotificationSettingsUiState())
         val state: StateFlow<NotificationSettingsUiState> = _state.asStateFlow()
 
         init {
             load()
+        }
+
+        fun triggerApprovalsTestNotification() {
+            notificationManager.sendApprovalsAlert()
+        }
+
+        fun triggerAttendanceTestNotification() {
+            notificationManager.sendAttendanceAlert()
+        }
+
+        fun triggerEmployeeTestNotification(employeeId: String = "00000000-0000-0000-0000-000000000004") {
+            notificationManager.sendEmployeeAlert(employeeId)
         }
 
         fun load() {

@@ -20,6 +20,7 @@ import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.Multibinds
 import kotlinx.serialization.json.Json
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
@@ -36,6 +37,7 @@ object AppModule {
     @Singleton
     fun provideJson(): Json =
         Json {
+            serializersModule = com.hr.client.infrastructure.Serializer.kotlinxSerializationAdapters
             ignoreUnknownKeys = true // An older client must not break when the server adds a field.
             explicitNulls = false
             encodeDefaults = true
@@ -75,6 +77,7 @@ object AppModule {
     fun provideOkHttpClient(
         authInterceptor: AuthInterceptor,
         tokenRefreshAuthenticator: TokenRefreshAuthenticator,
+        variantInterceptors: Set<@JvmSuppressWildcards Interceptor>,
     ): OkHttpClient =
         OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -104,10 +107,42 @@ object AppModule {
                     // TODO(P0-AND-08): supply pins from the release configuration.
                 }
             }
+            // Last, deliberately. An interceptor here may short-circuit the call, and everything
+            // above must still see it happen: added earlier, the logging interceptor would record a
+            // request that appeared to have no response. See NetworkInterceptorsModule for what
+            // contributes to this set and when.
+            .apply { variantInterceptors.forEach(::addInterceptor) }
             .build()
 
     private const val CONNECT_TIMEOUT_SECONDS = 10L
     private const val READ_TIMEOUT_SECONDS = 30L
+}
+
+/**
+ * Interceptors contributed by the build variant, and by nothing else.
+ *
+ * ## Why an empty multibinding is worth a module of its own
+ *
+ * The debug build needs a fake transport, because the Spring backend requires PostgreSQL and the
+ * app would otherwise be unclickable in development. The one thing that must be impossible is
+ * shipping it.
+ *
+ * A `BuildConfig` flag would not achieve that: the code would be in the release APK, one wrong
+ * value away from serving fixtures to a customer. So the fake lives in `app/src/debug/`, which AGP
+ * compiles into the debug variant *only*, and reaches the HTTP clients through this set.
+ *
+ * `@Multibinds` is what makes the set exist with no contributors. Without it, the release variant
+ * — where nothing contributes — would have no binding for `Set<Interceptor>` at all and would fail
+ * to compile, which is a strange way to find out that a build type is clean.
+ *
+ * The set is injected into both clients, because `AuthModule` deliberately builds a second one for
+ * the endpoints that establish a session.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+interface NetworkInterceptorsModule {
+    @Multibinds
+    fun variantInterceptors(): Set<@JvmSuppressWildcards Interceptor>
 }
 
 /**

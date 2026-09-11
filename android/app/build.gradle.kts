@@ -34,6 +34,21 @@ android {
             // Certificate pinning is disabled in debug so a proxy can be attached while
             // developing. It is enforced in release — see NetworkModule.
             buildConfigField("boolean", "CERTIFICATE_PINNING", "false")
+
+            // Whether the debug build answers its own HTTP calls from fixtures.
+            //
+            // On by default, because the common case for a debug APK is a handset with no route to
+            // a developer's laptop. Turn it off to point the same build at a real server:
+            //
+            //     ./gradlew assembleDebug -PdemoTransport=false
+            //
+            // Only meaningful in this build type — the fixtures live in `src/debug` and are not
+            // compiled into release at all, so there is no equivalent field there to get wrong.
+            buildConfigField(
+                "boolean",
+                "DEMO_TRANSPORT",
+                providers.gradleProperty("demoTransport").getOrElse("true"),
+            )
         }
         // Release-shaped but signed with the debug key, so Macrobenchmark can
         // install and drive it. Measuring a debug build would report numbers
@@ -266,3 +281,8 @@ tasks.register("checkReleaseApkSize") {
 tasks.matching { it.name == "assembleRelease" }.configureEach {
     finalizedBy("checkReleaseApkSize")
 }
+
+tasks.withType<Test>().configureEach {
+    jvmArgs("-Djdk.attach.allowAttachSelf=true", "-XX:+EnableDynamicAgentLoading")
+}
+

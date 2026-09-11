@@ -16,19 +16,28 @@
 import * as runtime from '../runtime';
 import type {
   ApiErrorResponse,
+  EmployeeDocumentItem,
   EmployeeProfile,
   EmployeeUpdate,
   FormSchema,
+  RenewDocumentRequest,
+  RenewDocumentResponse,
 } from '../models/index';
 import {
     ApiErrorResponseFromJSON,
     ApiErrorResponseToJSON,
+    EmployeeDocumentItemFromJSON,
+    EmployeeDocumentItemToJSON,
     EmployeeProfileFromJSON,
     EmployeeProfileToJSON,
     EmployeeUpdateFromJSON,
     EmployeeUpdateToJSON,
     FormSchemaFromJSON,
     FormSchemaToJSON,
+    RenewDocumentRequestFromJSON,
+    RenewDocumentRequestToJSON,
+    RenewDocumentResponseFromJSON,
+    RenewDocumentResponseToJSON,
 } from '../models/index';
 
 export interface GetEmployeeEditFormRequest {
@@ -38,6 +47,10 @@ export interface GetEmployeeEditFormRequest {
 
 export interface GetEmployeeProfileRequest {
     id: string;
+}
+
+export interface RenewOwnDocumentRequest {
+    renewDocumentRequest: RenewDocumentRequest;
 }
 
 export interface UpdateEmployeeProfileRequest {
@@ -87,6 +100,21 @@ export interface EmployeesApiInterface {
     getEmployeeProfile(requestParameters: GetEmployeeProfileRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<EmployeeProfile>;
 
     /**
+     * Returns active identity, statutory, and compliance documents belonging to the authenticated employee, including days remaining until expiry and compliance statuses. 
+     * @summary Retrieve statutory and compliance documents for current employee
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof EmployeesApiInterface
+     */
+    getOwnDocumentsRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<EmployeeDocumentItem>>>;
+
+    /**
+     * Returns active identity, statutory, and compliance documents belonging to the authenticated employee, including days remaining until expiry and compliance statuses. 
+     * Retrieve statutory and compliance documents for current employee
+     */
+    getOwnDocuments(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<EmployeeDocumentItem>>;
+
+    /**
      * A separate path from `/v1/employees/{id}` rather than making the client substitute its own id: the app opens this on launch, before it necessarily knows the employee id.  Returns `404 NO_EMPLOYEE_RECORD` for a user account that is not linked to an employee — a platform operator or an integration credential. 
      * @summary The caller\'s own employee profile
      * @param {*} [options] Override http request option.
@@ -100,6 +128,22 @@ export interface EmployeesApiInterface {
      * The caller\'s own employee profile
      */
     getOwnEmployeeProfile(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<EmployeeProfile>;
+
+    /**
+     * Submits updated document particulars (new expiry date, document number, and optional attachment) and archives the previous document record as REPLACED. 
+     * @summary Submit renewal or replacement for a compliance document
+     * @param {RenewDocumentRequest} renewDocumentRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof EmployeesApiInterface
+     */
+    renewOwnDocumentRaw(requestParameters: RenewOwnDocumentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<RenewDocumentResponse>>;
+
+    /**
+     * Submits updated document particulars (new expiry date, document number, and optional attachment) and archives the previous document record as REPLACED. 
+     * Submit renewal or replacement for a compliance document
+     */
+    renewOwnDocument(requestParameters: RenewOwnDocumentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<RenewDocumentResponse>;
 
     /**
      * PATCH rather than PUT because the caller may not be able to read every field. A PUT means \"here is the whole record\", which someone who cannot see the sensitive half is not in a position to send — they would have to echo back fields they never received, and the ones they omitted would be cleared.  A field the caller may not write is rejected with `403 FIELD_NOT_WRITABLE`, never silently dropped: a save that appears to succeed and quietly discards a change is worse than a refusal. Nothing is applied unless everything validates.  Writing is never the default. Without `employee.manage` you may change only your own contact details, preferred name and photo — not your name, date of birth or join date, which appear on statutory filings and change by request with evidence.  Send `If-Match` with the `version` you last read to avoid overwriting a concurrent edit. 
@@ -217,6 +261,42 @@ export class EmployeesApi extends runtime.BaseAPI implements EmployeesApiInterfa
     }
 
     /**
+     * Returns active identity, statutory, and compliance documents belonging to the authenticated employee, including days remaining until expiry and compliance statuses. 
+     * Retrieve statutory and compliance documents for current employee
+     */
+    async getOwnDocumentsRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Array<EmployeeDocumentItem>>> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/employees/me/documents`,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => jsonValue.map(EmployeeDocumentItemFromJSON));
+    }
+
+    /**
+     * Returns active identity, statutory, and compliance documents belonging to the authenticated employee, including days remaining until expiry and compliance statuses. 
+     * Retrieve statutory and compliance documents for current employee
+     */
+    async getOwnDocuments(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Array<EmployeeDocumentItem>> {
+        const response = await this.getOwnDocumentsRaw(initOverrides);
+        return await response.value();
+    }
+
+    /**
      * A separate path from `/v1/employees/{id}` rather than making the client substitute its own id: the app opens this on launch, before it necessarily knows the employee id.  Returns `404 NO_EMPLOYEE_RECORD` for a user account that is not linked to an employee — a platform operator or an integration credential. 
      * The caller\'s own employee profile
      */
@@ -249,6 +329,52 @@ export class EmployeesApi extends runtime.BaseAPI implements EmployeesApiInterfa
      */
     async getOwnEmployeeProfile(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<EmployeeProfile> {
         const response = await this.getOwnEmployeeProfileRaw(initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Submits updated document particulars (new expiry date, document number, and optional attachment) and archives the previous document record as REPLACED. 
+     * Submit renewal or replacement for a compliance document
+     */
+    async renewOwnDocumentRaw(requestParameters: RenewOwnDocumentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<RenewDocumentResponse>> {
+        if (requestParameters['renewDocumentRequest'] == null) {
+            throw new runtime.RequiredError(
+                'renewDocumentRequest',
+                'Required parameter "renewDocumentRequest" was null or undefined when calling renewOwnDocument().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("bearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const response = await this.request({
+            path: `/v1/employees/me/documents/renew`,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: RenewDocumentRequestToJSON(requestParameters['renewDocumentRequest']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => RenewDocumentResponseFromJSON(jsonValue));
+    }
+
+    /**
+     * Submits updated document particulars (new expiry date, document number, and optional attachment) and archives the previous document record as REPLACED. 
+     * Submit renewal or replacement for a compliance document
+     */
+    async renewOwnDocument(requestParameters: RenewOwnDocumentRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<RenewDocumentResponse> {
+        const response = await this.renewOwnDocumentRaw(requestParameters, initOverrides);
         return await response.value();
     }
 

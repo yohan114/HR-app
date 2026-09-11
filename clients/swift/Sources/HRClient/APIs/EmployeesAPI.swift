@@ -99,6 +99,43 @@ open class EmployeesAPI {
     }
 
     /**
+     Retrieve statutory and compliance documents for current employee
+     
+     - returns: [EmployeeDocumentItem]
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func getOwnDocuments() async throws -> [EmployeeDocumentItem] {
+        return try await getOwnDocumentsWithRequestBuilder().execute().body
+    }
+
+    /**
+     Retrieve statutory and compliance documents for current employee
+     - GET /v1/employees/me/documents
+     - Returns active identity, statutory, and compliance documents belonging to the authenticated employee, including days remaining until expiry and compliance statuses. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - returns: RequestBuilder<[EmployeeDocumentItem]> 
+     */
+    open class func getOwnDocumentsWithRequestBuilder() -> RequestBuilder<[EmployeeDocumentItem]> {
+        let localVariablePath = "/v1/employees/me/documents"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters: [String: Any]? = nil
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            :
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<[EmployeeDocumentItem]>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "GET", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
      The caller's own employee profile
      
      - returns: EmployeeProfile
@@ -133,6 +170,45 @@ open class EmployeesAPI {
         let localVariableRequestBuilder: RequestBuilder<EmployeeProfile>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
 
         return localVariableRequestBuilder.init(method: "GET", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
+    }
+
+    /**
+     Submit renewal or replacement for a compliance document
+     
+     - parameter renewDocumentRequest: (body)  
+     - returns: RenewDocumentResponse
+     */
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    open class func renewOwnDocument(renewDocumentRequest: RenewDocumentRequest) async throws -> RenewDocumentResponse {
+        return try await renewOwnDocumentWithRequestBuilder(renewDocumentRequest: renewDocumentRequest).execute().body
+    }
+
+    /**
+     Submit renewal or replacement for a compliance document
+     - POST /v1/employees/me/documents/renew
+     - Submits updated document particulars (new expiry date, document number, and optional attachment) and archives the previous document record as REPLACED. 
+     - Bearer Token:
+       - type: http
+       - name: bearerAuth
+     - parameter renewDocumentRequest: (body)  
+     - returns: RequestBuilder<RenewDocumentResponse> 
+     */
+    open class func renewOwnDocumentWithRequestBuilder(renewDocumentRequest: RenewDocumentRequest) -> RequestBuilder<RenewDocumentResponse> {
+        let localVariablePath = "/v1/employees/me/documents/renew"
+        let localVariableURLString = HRClientAPI.basePath + localVariablePath
+        let localVariableParameters = JSONEncodingHelper.encodingParameters(forEncodableObject: renewDocumentRequest)
+
+        let localVariableUrlComponents = URLComponents(string: localVariableURLString)
+
+        let localVariableNillableHeaders: [String: Any?] = [
+            "Content-Type": "application/json",
+        ]
+
+        let localVariableHeaderParameters = APIHelper.rejectNilHeaders(localVariableNillableHeaders)
+
+        let localVariableRequestBuilder: RequestBuilder<RenewDocumentResponse>.Type = HRClientAPI.requestBuilderFactory.getBuilder()
+
+        return localVariableRequestBuilder.init(method: "POST", URLString: (localVariableUrlComponents?.string ?? localVariableURLString), parameters: localVariableParameters, headers: localVariableHeaderParameters, requiresAuthentication: true)
     }
 
     /**

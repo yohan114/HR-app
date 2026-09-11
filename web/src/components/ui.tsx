@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
-import { useId } from 'react'
+import { useEffect, useId } from 'react'
 import './ui.css'
 
 /**
@@ -58,7 +58,7 @@ interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
  * The label is always rendered and always associated — placeholder-as-label is inaccessible and
  * disappears the moment someone starts typing, which is when they most need it.
  */
-export function Field({ label, error, hint, id, ...rest }: FieldProps) {
+export function Field({ label, error, hint, id, children, ...rest }: FieldProps & { children?: React.ReactNode }) {
   const generatedId = useId()
   const fieldId = id ?? generatedId
   const errorId = `${fieldId}-error`
@@ -73,13 +73,17 @@ export function Field({ label, error, hint, id, ...rest }: FieldProps) {
       <label className="field__label" htmlFor={fieldId}>
         {label}
       </label>
-      <input
-        id={fieldId}
-        className={`field__input${error !== undefined ? ' field__input--error' : ''}`}
-        aria-invalid={error !== undefined}
-        aria-describedby={describedBy.length > 0 ? describedBy : undefined}
-        {...rest}
-      />
+      {children ? (
+        children
+      ) : (
+        <input
+          id={fieldId}
+          className={`field__input${error !== undefined ? ' field__input--error' : ''}`}
+          aria-invalid={error !== undefined}
+          aria-describedby={describedBy.length > 0 ? describedBy : undefined}
+          {...rest}
+        />
+      )}
       {hint !== undefined ? (
         <p id={hintId} className="field__hint">
           {hint}
@@ -231,3 +235,214 @@ export function DataTable<T>({
 export function Badge({ tone, children }: { tone: 'neutral' | 'success' | 'warning' | 'danger'; children: ReactNode }) {
   return <span className={`badge badge--${tone}`}>{children}</span>
 }
+
+// ---------------------------------------------------------------------------
+// Modal
+// ---------------------------------------------------------------------------
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  actions,
+  size = 'medium',
+}: {
+  isOpen: boolean
+  onClose: () => void
+  title: string
+  children: ReactNode
+  actions?: ReactNode
+  size?: 'small' | 'medium' | 'large'
+}) {
+  const titleId = useId()
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className={`modal modal--${size}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="modal__header">
+          <h2 id={titleId} className="modal__title">
+            {title}
+          </h2>
+          <button
+            type="button"
+            className="modal__close"
+            onClick={onClose}
+            aria-label="Close dialog"
+          >
+            &times;
+          </button>
+        </header>
+        <div className="modal__body">{children}</div>
+        {actions !== undefined && <footer className="modal__footer">{actions}</footer>}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Drawer
+// ---------------------------------------------------------------------------
+
+export function Drawer({
+  isOpen,
+  onClose,
+  title,
+  children,
+  actions,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  title: string
+  children: ReactNode
+  actions?: ReactNode
+}) {
+  const titleId = useId()
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose} role="presentation">
+      <aside
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="drawer__header">
+          <h2 id={titleId} className="drawer__title">
+            {title}
+          </h2>
+          <button
+            type="button"
+            className="modal__close"
+            onClick={onClose}
+            aria-label="Close panel"
+          >
+            &times;
+          </button>
+        </header>
+        <div className="drawer__body">{children}</div>
+        {actions !== undefined && <footer className="drawer__footer">{actions}</footer>}
+      </aside>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Switch
+// ---------------------------------------------------------------------------
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled = false,
+  id,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  label: string
+  description?: string
+  disabled?: boolean
+  id?: string
+}) {
+  const generatedId = useId()
+  const switchId = id ?? generatedId
+  const descId = `${switchId}-desc`
+
+  return (
+    <div className="switch-row">
+      <div className="switch-row__label-group">
+        <label htmlFor={switchId} className="switch-row__label">
+          {label}
+        </label>
+        {description !== undefined && (
+          <span id={descId} className="switch-row__description">
+            {description}
+          </span>
+        )}
+      </div>
+      <button
+        id={switchId}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-describedby={description !== undefined ? descId : undefined}
+        disabled={disabled}
+        className={`switch${checked ? ' switch--checked' : ''}`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="switch__thumb" />
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+
+export function Tabs<T extends string>({
+  items,
+  activeTab,
+  onChange,
+}: {
+  items: Array<{ id: T; label: string; badge?: string | number }>
+  activeTab: T
+  onChange: (id: T) => void
+}) {
+  return (
+    <div className="tabs" role="tablist">
+      {items.map((item) => {
+        const isActive = item.id === activeTab
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            className={`tab${isActive ? ' tab--active' : ''}`}
+            onClick={() => onChange(item.id)}
+          >
+            <span>{item.label}</span>
+            {item.badge !== undefined && (
+              <span className={`tab__badge${isActive ? ' tab__badge--active' : ''}`}>
+                {item.badge}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+

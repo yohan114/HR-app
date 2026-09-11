@@ -90,3 +90,12 @@ enum class SyncState {
     REJECTED,
     FAILED,
 }
+
+/**
+ * Projection of an in-flight outbox entry's identity, used by the home screen to subtract
+ * pending offline approvals from server-provided counts (docs/home-composite.md §3).
+ */
+data class PendingAggregateKey(
+    val aggregateType: String,
+    val aggregateId: String,
+)

@@ -246,7 +246,7 @@ CREATE TABLE refresh_token
     tenant_id      uuid         NOT NULL REFERENCES tenant (id) ON DELETE CASCADE,
     user_id        uuid         NOT NULL REFERENCES app_user (id) ON DELETE CASCADE,
     device_id      uuid         REFERENCES user_device (id) ON DELETE CASCADE,
-    token_hash     char(64)     NOT NULL,
+    token_hash     varchar(64)  NOT NULL,
     family_id      uuid         NOT NULL,
     parent_id      uuid,
     issued_at      timestamptz  NOT NULL DEFAULT now(),

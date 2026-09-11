@@ -36,6 +36,7 @@ class SecurityConfig {
             .authorizeHttpRequests {
                 it
                     .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                    .requestMatchers("/iclock/**").permitAll()
                     // The pre-authentication surface: resolve an org, sign in, refresh, unlock
                     // with biometrics. Note these are enumerated individually rather than
                     // permitting all of /v1/auth/** — device management lives under the same

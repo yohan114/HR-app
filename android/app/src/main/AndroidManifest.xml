@@ -40,6 +40,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.HR.Splash">
             <intent-filter>
@@ -55,6 +56,14 @@
                 <data android:scheme="hrapp" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".notification.MockPushReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.hr.app.action.TEST_PUSH" />
+            </intent-filter>
+        </receiver>
 
         <!--
           WorkManager's default initialiser is removed so Hilt can supply the configuration

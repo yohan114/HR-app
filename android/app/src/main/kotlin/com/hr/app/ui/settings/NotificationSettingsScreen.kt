@@ -12,6 +12,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -89,6 +90,45 @@ fun NotificationSettingsScreen(
                 switches = state.switches,
                 onToggle = viewModel::toggle,
             )
+        }
+
+        HorizontalDivider()
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s2),
+        ) {
+            Text("Simulate Push Notifications", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "Trigger synthetic push alerts locally to verify system notification presentation and deep linking into Approvals, Time, and Employee screens.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s2),
+            ) {
+                OutlinedButton(
+                    onClick = viewModel::triggerApprovalsTestNotification,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Approvals Link")
+                }
+                OutlinedButton(
+                    onClick = viewModel::triggerAttendanceTestNotification,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Time Link")
+                }
+            }
+
+            OutlinedButton(
+                onClick = { viewModel.triggerEmployeeTestNotification() },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Milestone Link (hrapp://employee/...)")
+            }
         }
 
         Row(
