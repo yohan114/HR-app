@@ -64,7 +64,15 @@ class DocumentService(
 
     @Transactional(readOnly = true)
     fun listDocuments(folderId: UUID?, category: String?, search: String?): DocumentListResponse {
-        val documents = companyDocumentRepository.searchDocuments(folderId, category, search)
+        val trimmedSearch = search?.trim()?.takeIf { it.isNotEmpty() }
+        val searchPattern = trimmedSearch?.let { "%${it.lowercase()}%" }
+        val trimmedCategory = category?.trim()?.takeIf { it.isNotEmpty() }?.uppercase()
+
+        val documents = if (folderId == null && trimmedCategory == null && searchPattern == null) {
+            companyDocumentRepository.findAllByOrderByCreatedAtDesc()
+        } else {
+            companyDocumentRepository.searchDocuments(folderId, trimmedCategory, searchPattern)
+        }
         val items = documents.map { it.toItem() }
         return DocumentListResponse(items)
     }

@@ -28,9 +28,8 @@ interface CompanyDocumentRepository : JpaRepository<CompanyDocumentEntity, UUID>
     @Query("""
         SELECT d FROM CompanyDocumentEntity d
         WHERE (:folderId IS NULL OR d.folderId = :folderId)
-          AND (:category IS NULL OR LOWER(d.documentCategory) = LOWER(:category))
-          AND (:search IS NULL OR LOWER(d.title) LIKE LOWER(CONCAT('%', :search, '%')) 
-               OR LOWER(d.fileName) LIKE LOWER(CONCAT('%', :search, '%')))
+          AND (:category IS NULL OR d.documentCategory = :category)
+          AND (:search IS NULL OR LOWER(d.title) LIKE :search OR LOWER(d.fileName) LIKE :search)
         ORDER BY d.createdAt DESC
     """)
     fun searchDocuments(
