@@ -6,35 +6,77 @@ interface NavItem {
   to: string
   label: string
   /** Hidden when the user lacks this permission. A UI affordance — the API enforces it too. */
-  permission?: string
+  permission?: string | readonly string[] | string[]
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Overview' },
-  // No permission: the directory is open to every authenticated employee, and the endpoint is
-  // safe because of what it does not select rather than because of who may call it.
-  { to: '/directory', label: 'Directory' },
-  { to: '/recruitment', label: 'Recruitment & ATS' },
-  { to: '/documents', label: 'Documents & Vault' },
-  { to: '/timesheets', label: 'Timesheets' },
-  { to: '/performance', label: 'Performance & Goals' },
-  { to: '/onboarding', label: 'Onboarding & Offboarding' },
-  { to: '/leave', label: 'Leave & Absence' },
-  { to: '/attendance', label: 'Attendance' },
-  { to: '/payroll', label: 'Payroll' },
-  { to: '/loans', label: 'Loans & Advances' },
-  { to: '/benefits', label: 'Benefits Admin' },
-  { to: '/training', label: 'Training & Development' },
-  { to: '/disciplinary', label: 'Disciplinary & Grievance' },
-  { to: '/forms-builder', label: 'Form Designer' },
-  { to: '/formula-builder', label: 'Formula Studio' },
-  { to: '/report-builder', label: 'Report Builder' },
-  { to: '/batch-tools', label: 'Batch Import & Export' },
+  { to: '/directory', label: 'Directory', permission: 'employee.directory' },
+  { to: '/org-chart', label: 'Org Chart', permission: 'org.structure.view' },
+  {
+    to: '/recruitment',
+    label: 'Recruitment & ATS',
+    permission: ['recruitment.job.view', 'recruitment.job.manage', 'recruitment.candidate.view'],
+  },
+  {
+    to: '/documents',
+    label: 'Documents & Vault',
+    permission: ['document.template.view', 'document.employee.view', 'document.signature.manage'],
+  },
+  {
+    to: '/timesheets',
+    label: 'Timesheets',
+    permission: ['timesheet.record.view', 'timesheet.submit', 'timesheet.approve'],
+  },
+  {
+    to: '/performance',
+    label: 'Performance & Goals',
+    permission: [
+      'performance.review.view',
+      'performance.cycle.view',
+      'performance.goal.manage',
+      'performance.goal.view',
+    ],
+  },
+  {
+    to: '/onboarding',
+    label: 'Onboarding & Offboarding',
+    permission: ['onboarding.task.view', 'offboarding.task.view'],
+  },
+  {
+    to: '/leave',
+    label: 'Leave & Absence',
+    permission: ['leave.request.view', 'leave.policy.view', 'leave.request.create', 'leave.request.approve'],
+  },
+  {
+    to: '/attendance',
+    label: 'Attendance',
+    permission: ['attendance.record.view', 'attendance.punch.create', 'attendance.shift.view'],
+  },
+  { to: '/payroll', label: 'Payroll', permission: ['payroll.view', 'payroll.run.view'] },
+  {
+    to: '/loans',
+    label: 'Loans & Advances',
+    permission: ['loan.request.view', 'loan.type.view', 'loan.request.create', 'loan.settle'],
+  },
+  { to: '/benefits', label: 'Benefits Admin', permission: ['benefit.plan.view', 'benefit.plan.manage'] },
+  {
+    to: '/training',
+    label: 'Training & Development',
+    permission: ['training.course.view', 'training.enrolment.view'],
+  },
+  {
+    to: '/disciplinary',
+    label: 'Disciplinary & Grievance',
+    permission: ['disciplinary.case.view', 'disciplinary.grievance.view'],
+  },
+  { to: '/forms-builder', label: 'Form Designer', permission: ['config.field.manage', 'config.field.view'] },
+  { to: '/formula-builder', label: 'Formula Studio', permission: ['payroll.config.manage', 'payroll.config.view'] },
+  { to: '/report-builder', label: 'Report Builder', permission: ['payroll.report.view', 'platform.audit.view'] },
+  { to: '/batch-tools', label: 'Batch Import & Export', permission: ['employee.manage', 'platform.tenant.manage'] },
   { to: '/tenants', label: 'Organisations', permission: 'platform.tenant.view' },
-  { to: '/users', label: 'Users', permission: 'identity.user.view' },
+  { to: '/users', label: 'Users', permission: 'identity.user.manage' },
   { to: '/roles', label: 'Roles', permission: 'identity.role.view' },
-  // No permission: this is the user's own account. Every authenticated user may manage their own
-  // devices and second factor, and the endpoints take the subject from the token.
   { to: '/security', label: 'Security' },
   { to: '/notifications', label: 'Notifications' },
 ]

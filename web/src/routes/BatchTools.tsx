@@ -1,5 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Badge, Button, Card, DataTable } from '@/components/ui'
+import { directoryApi } from '@/lib/api'
+import type { DirectoryEntry } from '@hr/client'
 
 export interface TargetField {
   key: string
@@ -59,12 +61,56 @@ export function BatchTools() {
   const [importProgress, setImportProgress] = useState<number>(0)
   const [isImporting, setIsImporting] = useState<boolean>(false)
   const [importResult, setImportResult] = useState<{ total: number; inserted: number; updated: number; failed: number } | null>(null)
+  const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false)
+  const [existingEmployees, setExistingEmployees] = useState<DirectoryEntry[]>([])
 
   // Export state
   const [exportEntity, setExportEntity] = useState<string>('employees')
   const [exportFormat, setExportFormat] = useState<'CSV' | 'EXCEL' | 'JSON'>('CSV')
   const [exportDept, setExportDept] = useState<string>('ALL')
   const [exportBanner, setExportBanner] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState<boolean>(false)
+
+  // Load existing directory for cross-validation
+  useEffect(() => {
+    directoryApi.searchDirectory({ limit: 100 })
+      .then((res) => {
+        if (res.items) {
+          setExistingEmployees(res.items)
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load directory for batch duplicate check:', err)
+      })
+
+    const draft = localStorage.getItem('hr_batch_tools_draft')
+    if (draft) {
+      try {
+        const parsed = JSON.parse(draft)
+        if (parsed.rawRows && parsed.rawRows.length > 0) {
+          setHasSavedDraft(true)
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [])
+
+  const restoreSavedDraft = () => {
+    const draft = localStorage.getItem('hr_batch_tools_draft')
+    if (!draft) return
+    try {
+      const parsed = JSON.parse(draft)
+      setFileName(parsed.fileName || 'restored_batch.csv')
+      setRawRows(parsed.rawRows || [])
+      setColumnMapping(parsed.columnMapping || {})
+      setEditableRows(parsed.editableRows || [])
+      setStep(parsed.step || 2)
+      setHasSavedDraft(false)
+    } catch {
+      alert('Failed to parse saved draft.')
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // CSV Parser & Loader
@@ -105,6 +151,17 @@ export function BatchTools() {
     })
     setColumnMapping(initialMapping)
     setStep(2)
+
+    localStorage.setItem(
+      'hr_batch_tools_draft',
+      JSON.stringify({
+        fileName: customName,
+        rawRows: dataRows,
+        columnMapping: initialMapping,
+        editableRows: [],
+        step: 2,
+      }),
+    )
   }
 
   const loadSampleDataset = () => {
@@ -115,6 +172,9 @@ export function BatchTools() {
   // Validate Rows from Mapping
   // ---------------------------------------------------------------------------
   const validateMappedRows = () => {
+    const existingEmails = new Set(existingEmployees.map((e) => (e.workEmail || '').toLowerCase()))
+    const existingCodes = new Set(existingEmployees.map((e) => (e.employeeCode || '').toLowerCase()))
+
     const validated: ParsedRow[] = rawRows.map((raw, idx) => {
       const rowData: Record<string, string> = {}
       Object.entries(columnMapping).forEach(([sourceCol, targetField]) => {
@@ -133,9 +193,17 @@ export function BatchTools() {
         }
       })
 
-      // Email format
-      if (rowData.work_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rowData.work_email)) {
-        errors.work_email = 'Invalid email address format'
+      // Email format and duplicate check
+      if (rowData.work_email) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rowData.work_email)) {
+          errors.work_email = 'Invalid email address format'
+        } else if (existingEmails.has(rowData.work_email.toLowerCase())) {
+          errors.work_email = 'Notice: Email already registered in directory (will update)'
+        }
+      }
+
+      if (rowData.employee_code && existingCodes.has(rowData.employee_code.toLowerCase())) {
+        errors.employee_code = 'Notice: Employee Code already exists (will update)'
       }
 
       // Salary validation
@@ -255,22 +323,62 @@ export function BatchTools() {
   }
 
   // Export Hub Trigger
-  const handleExportData = () => {
-    setExportBanner(`Generated ${exportFormat} export for [${exportEntity.toUpperCase()}] (Filtered by: ${exportDept}). Download initiated.`)
-    setTimeout(() => setExportBanner(null), 4000)
+  const handleExportData = async () => {
+    try {
+      setIsExporting(true)
+      let items: DirectoryEntry[] = []
+      try {
+        const res = await directoryApi.searchDirectory({ limit: 100 })
+        items = res.items ?? []
+      } catch (err) {
+        console.warn('Could not query directoryApi for export:', err)
+      }
 
-    // Trigger synthetic file download
-    const exportContent =
-      exportFormat === 'JSON'
-        ? JSON.stringify({ entity: exportEntity, department: exportDept, timestamp: new Date().toISOString() }, null, 2)
-        : 'id,code,name,department,status\n1,E001,Nimali Wickramasinghe,Executive,ACTIVE\n2,E002,Ruwan Jayasuriya,Engineering,ACTIVE\n'
-    const blob = new Blob([exportContent], { type: 'text/plain;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${exportEntity}_export_${exportDept.toLowerCase()}.${exportFormat === 'JSON' ? 'json' : 'csv'}`
-    a.click()
-    URL.revokeObjectURL(url)
+      if (exportDept !== 'ALL') {
+        items = items.filter((it) => it.department === exportDept)
+      }
+
+      let exportContent = ''
+      if (exportFormat === 'JSON') {
+        exportContent = JSON.stringify(
+          {
+            entity: exportEntity,
+            department: exportDept,
+            exportedAt: new Date().toISOString(),
+            totalRecords: items.length,
+            records: items,
+          },
+          null,
+          2,
+        )
+      } else {
+        const header = 'employee_code,display_name,department,designation,location,work_email\n'
+        const rows = items
+          .map(
+            (it) =>
+              `"${it.employeeCode}","${it.displayName}","${it.department ?? ''}","${it.designation ?? ''}","${it.location ?? ''}","${it.workEmail ?? ''}"`,
+          )
+          .join('\n')
+        exportContent = header + rows
+      }
+
+      const blob = new Blob([exportContent], {
+        type: exportFormat === 'JSON' ? 'application/json' : 'text/csv;charset=utf-8;',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${exportEntity}_export_${exportDept.toLowerCase()}_${new Date().toISOString().split('T')[0]}.${exportFormat === 'JSON' ? 'json' : 'csv'}`
+      a.click()
+      URL.revokeObjectURL(url)
+
+      setExportBanner(
+        `Generated ${exportFormat} export for ${items.length} records in [${exportEntity.toUpperCase()}]. Download initiated.`,
+      )
+      setTimeout(() => setExportBanner(null), 4000)
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const validCount = useMemo(() => editableRows.filter((r) => r._status === 'VALID').length, [editableRows])
@@ -286,10 +394,10 @@ export function BatchTools() {
               Batch Import & Export Administration Hub
             </h1>
             <Badge tone="success">Engine: Active</Badge>
-            <Badge tone="neutral">CSV & Excel Support</Badge>
+            <Badge tone="neutral">Connected: /v1/directory/search</Badge>
           </div>
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-on-surface-muted)' }}>
-            Bulk upload employee records with intelligent column mapping, in-grid validation, and granular data export.
+            Bulk upload employee records with intelligent column mapping, in-grid validation, and live directory export.
           </p>
         </div>
 
@@ -371,13 +479,18 @@ export function BatchTools() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                   <Button variant="secondary" onClick={downloadTemplate}>
                     📥 Download Standard CSV Template
                   </Button>
                   <Button variant="primary" onClick={loadSampleDataset}>
                     ⚡ Load Demo Dataset (7 Sample Records)
                   </Button>
+                  {hasSavedDraft && (
+                    <Button variant="secondary" onClick={restoreSavedDraft}>
+                      🔄 Restore In-Progress Batch Session
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>

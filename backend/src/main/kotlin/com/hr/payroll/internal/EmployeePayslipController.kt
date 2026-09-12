@@ -3,6 +3,7 @@ package com.hr.payroll.internal
 import com.hr.identity.Caller
 import com.hr.payroll.LineCategory
 import com.hr.shared.api.NotFoundException
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
@@ -112,6 +113,7 @@ data class PayslipComparisonResponse(
 
 @RestController
 @RequestMapping("/v1/payroll/me/payslips")
+@PreAuthorize("isAuthenticated()")
 class EmployeePayslipController(
     private val payrollResultRepository: PayrollResultRepository,
     private val payrollResultLineRepository: PayrollResultLineRepository,
@@ -310,11 +312,12 @@ class EmployeePayslipController(
 
     private fun resolveEmployeeId(jwt: Jwt?): UUID {
         if (jwt != null) {
-            runCatching {
-                Caller.from(jwt).employeeId
-            }.getOrNull()?.let { return it }
+            val caller = runCatching { Caller.from(jwt) }.getOrNull()
+            if (caller?.employeeId != null) {
+                return caller.employeeId
+            }
         }
-        return UUID.fromString("00000000-0000-0000-0000-000000000001")
+        throw NotFoundException("NO_EMPLOYEE_RECORD", "This account is not linked to an employee record")
     }
 
     private fun formatPeriodName(startDate: LocalDate, endDate: LocalDate): String {

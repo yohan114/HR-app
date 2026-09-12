@@ -3,11 +3,13 @@ package com.hr.training.internal
 import com.hr.training.*
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/training")
+@PreAuthorize("isAuthenticated()")
 class TrainingController(
     private val trainingService: TrainingService,
 ) {

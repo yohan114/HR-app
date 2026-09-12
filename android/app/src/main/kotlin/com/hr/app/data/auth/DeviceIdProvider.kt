@@ -40,6 +40,19 @@ class DeviceIdProvider
             prefs.getString(KEY_DEVICE_ID, null)
                 ?: UUID.randomUUID().toString().also { prefs.edit { putString(KEY_DEVICE_ID, it) } }
 
+        fun pushToken(): String? = prefs.getString(KEY_PUSH_TOKEN, null)
+
+        fun updatePushToken(token: String?) {
+            val sanitized = token?.trim()?.ifBlank { null }
+            prefs.edit {
+                if (sanitized == null) {
+                    remove(KEY_PUSH_TOKEN)
+                } else {
+                    putString(KEY_PUSH_TOKEN, sanitized)
+                }
+            }
+        }
+
         fun rememberTenantCode(code: String) = prefs.edit { putString(KEY_TENANT_CODE, code) }
 
         fun lastTenantCode(): String? = prefs.getString(KEY_TENANT_CODE, null)
@@ -51,5 +64,6 @@ class DeviceIdProvider
             const val PREFS = "hr_device"
             const val KEY_DEVICE_ID = "device_id"
             const val KEY_TENANT_CODE = "tenant_code"
+            const val KEY_PUSH_TOKEN = "push_token"
         }
     }

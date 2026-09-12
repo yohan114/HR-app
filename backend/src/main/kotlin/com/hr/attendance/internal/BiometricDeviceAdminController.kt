@@ -1,6 +1,7 @@
 package com.hr.attendance.internal
 
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
@@ -14,6 +15,7 @@ data class BiometricLiveStreamResponseDto(
 
 @RestController
 @RequestMapping("/v1/attendance/devices")
+@PreAuthorize("hasAnyAuthority('biometric.device.view', 'biometric.device.manage', 'attendance.device.view', 'attendance.device.manage')")
 class BiometricDeviceAdminController(
     private val service: BiometricDeviceService,
 ) {

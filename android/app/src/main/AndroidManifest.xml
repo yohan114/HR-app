@@ -62,6 +62,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.hr.app.action.TEST_PUSH" />
+                <action android:name="com.hr.app.action.REGISTER_TOKEN" />
             </intent-filter>
         </receiver>
 

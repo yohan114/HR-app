@@ -64,3 +64,40 @@ body {
   white-space: nowrap;
   border: 0;
 }
+
+/* Layout utilities */
+.grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.grid--2-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.grid--4-col {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.flow > * + * {
+  margin-top: var(--space-4);
+}
+
+.button-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Typography and text utilities */
+.font-semibold {
+  font-weight: 600;
+}
+
+.text-secondary {
+  color: var(--color-on-surface-muted);
+}

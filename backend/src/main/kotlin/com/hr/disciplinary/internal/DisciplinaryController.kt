@@ -2,6 +2,7 @@ package com.hr.disciplinary.internal
 
 import com.hr.disciplinary.*
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
@@ -9,6 +10,7 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/disciplinary")
+@PreAuthorize("hasAnyAuthority('disciplinary.case.view', 'disciplinary.case.manage', 'ADMIN', 'ROLE_ADMIN', 'ROLE_HR_ADMIN')")
 class DisciplinaryController(
     private val disciplinaryService: DisciplinaryService,
 ) {

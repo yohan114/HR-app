@@ -2,6 +2,7 @@ package com.hr.recruitment.internal
 
 import com.hr.recruitment.*
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
@@ -9,6 +10,7 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/recruitment")
+@PreAuthorize("hasAnyAuthority('recruitment.job.view', 'recruitment.job.manage', 'recruitment.candidate.view', 'recruitment.candidate.manage')")
 class RecruitmentController(
     private val vacancyService: VacancyService,
     private val applicationPipelineService: ApplicationPipelineService,

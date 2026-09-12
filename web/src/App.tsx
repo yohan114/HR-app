@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { LoadingState } from '@/components/ui'
+import { Card, LoadingState, NoPermissionState } from '@/components/ui'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { AppLayout } from '@/routes/AppLayout'
 import { Attendance } from '@/routes/Attendance'
@@ -28,6 +28,7 @@ import { Training } from '@/routes/Training'
 import { Loans } from '@/routes/Loans'
 import { Benefits } from '@/routes/Benefits'
 import { Disciplinary } from '@/routes/Disciplinary'
+import { OrgChart } from '@/routes/OrgChart'
 import type { ReactNode } from 'react'
 
 const queryClient = new QueryClient({
@@ -56,6 +57,29 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+function RequirePermission({
+  permission,
+  children,
+}: {
+  permission: string | readonly string[] | string[]
+  children: ReactNode
+}) {
+  const { status, can } = useAuth()
+
+  if (status === 'loading') return <LoadingState label="Verifying permissions…" />
+  if (!can(permission)) {
+    const required = Array.isArray(permission) ? permission.join(', ') : String(permission)
+    return (
+      <div className="page">
+        <Card>
+          <NoPermissionState permission={required} />
+        </Card>
+      </div>
+    )
+  }
+  return <>{children}</>
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -72,7 +96,22 @@ export function App() {
               }
             >
               <Route index element={<Overview />} />
-              <Route path="directory" element={<Directory />} />
+              <Route
+                path="directory"
+                element={
+                  <RequirePermission permission="employee.directory">
+                    <Directory />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="org-chart"
+                element={
+                  <RequirePermission permission="org.structure.view">
+                    <OrgChart />
+                  </RequirePermission>
+                }
+              />
               {/*
                 No permission guard on the route. Whether this caller may see this record is a
                 per-record question the server answers — it returns 404 for a record they may not
@@ -82,27 +121,184 @@ export function App() {
               <Route path="employees/:id" element={<EmployeeProfile />} />
               {/* Your own account, so no guard: the endpoints take the subject from the token. */}
               <Route path="security" element={<Security />} />
-              <Route path="recruitment" element={<Recruitment />} />
-              <Route path="documents" element={<Documents />} />
-              <Route path="timesheets" element={<Timesheets />} />
-              <Route path="performance" element={<Performance />} />
-              <Route path="onboarding" element={<Onboarding />} />
-              <Route path="leave" element={<Leave />} />
-              <Route path="attendance" element={<Attendance />} />
-              <Route path="payroll" element={<Payroll />} />
-              <Route path="training" element={<Training />} />
-              <Route path="loans" element={<Loans />} />
-              <Route path="benefits" element={<Benefits />} />
-              <Route path="disciplinary" element={<Disciplinary />} />
-              <Route path="forms-builder" element={<FormBuilder />} />
-              <Route path="forms-config" element={<FormBuilder />} />
-              <Route path="formula-builder" element={<FormulaBuilder />} />
-              <Route path="report-builder" element={<ReportBuilder />} />
-              <Route path="batch-tools" element={<BatchTools />} />
+              <Route
+                path="recruitment"
+                element={
+                  <RequirePermission
+                    permission={['recruitment.job.view', 'recruitment.job.manage', 'recruitment.candidate.view']}
+                  >
+                    <Recruitment />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="documents"
+                element={
+                  <RequirePermission
+                    permission={['document.template.view', 'document.employee.view', 'document.signature.manage']}
+                  >
+                    <Documents />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="timesheets"
+                element={
+                  <RequirePermission permission={['timesheet.record.view', 'timesheet.submit', 'timesheet.approve']}>
+                    <Timesheets />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="performance"
+                element={
+                  <RequirePermission
+                    permission={[
+                      'performance.review.view',
+                      'performance.cycle.view',
+                      'performance.goal.manage',
+                      'performance.goal.view',
+                    ]}
+                  >
+                    <Performance />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="onboarding"
+                element={
+                  <RequirePermission permission={['onboarding.task.view', 'offboarding.task.view']}>
+                    <Onboarding />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="leave"
+                element={
+                  <RequirePermission
+                    permission={['leave.request.view', 'leave.policy.view', 'leave.request.create', 'leave.request.approve']}
+                  >
+                    <Leave />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="attendance"
+                element={
+                  <RequirePermission
+                    permission={['attendance.record.view', 'attendance.punch.create', 'attendance.shift.view']}
+                  >
+                    <Attendance />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="payroll"
+                element={
+                  <RequirePermission permission={['payroll.view', 'payroll.run.view']}>
+                    <Payroll />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="training"
+                element={
+                  <RequirePermission permission={['training.course.view', 'training.enrolment.view']}>
+                    <Training />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="loans"
+                element={
+                  <RequirePermission
+                    permission={['loan.request.view', 'loan.type.view', 'loan.request.create', 'loan.settle']}
+                  >
+                    <Loans />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="benefits"
+                element={
+                  <RequirePermission permission={['benefit.plan.view', 'benefit.plan.manage']}>
+                    <Benefits />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="disciplinary"
+                element={
+                  <RequirePermission permission={['disciplinary.case.view', 'disciplinary.grievance.view']}>
+                    <Disciplinary />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="forms-builder"
+                element={
+                  <RequirePermission permission={['config.field.manage', 'config.field.view']}>
+                    <FormBuilder />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="forms-config"
+                element={
+                  <RequirePermission permission={['config.field.manage', 'config.field.view']}>
+                    <FormBuilder />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="formula-builder"
+                element={
+                  <RequirePermission permission={['payroll.config.manage', 'payroll.config.view']}>
+                    <FormulaBuilder />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="report-builder"
+                element={
+                  <RequirePermission permission={['payroll.report.view', 'platform.audit.view']}>
+                    <ReportBuilder />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="batch-tools"
+                element={
+                  <RequirePermission permission={['employee.manage', 'platform.tenant.manage']}>
+                    <BatchTools />
+                  </RequirePermission>
+                }
+              />
               <Route path="notifications" element={<NotificationSettings />} />
-              <Route path="tenants" element={<Tenants />} />
-              <Route path="users" element={<Users />} />
-              <Route path="roles" element={<Roles />} />
+              <Route
+                path="tenants"
+                element={
+                  <RequirePermission permission="platform.tenant.view">
+                    <Tenants />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="users"
+                element={
+                  <RequirePermission permission="identity.user.manage">
+                    <Users />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="roles"
+                element={
+                  <RequirePermission permission="identity.role.view">
+                    <Roles />
+                  </RequirePermission>
+                }
+              />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

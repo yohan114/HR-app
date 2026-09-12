@@ -1,6 +1,7 @@
 package com.hr.tenancy.internal
 
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -15,6 +16,7 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/tenants")
+@PreAuthorize("hasAnyAuthority('platform.tenant.view', 'platform.tenant.manage', 'ADMIN', 'ROLE_ADMIN')")
 class TenantAdminController(
     private val service: TenantAdminService,
 ) {

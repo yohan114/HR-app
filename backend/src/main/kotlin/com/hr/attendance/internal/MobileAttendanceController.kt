@@ -13,6 +13,7 @@ import com.hr.employee.EmployeeLookupService
 import com.hr.identity.Caller
 import com.hr.shared.api.NotFoundException
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
@@ -171,6 +172,7 @@ data class AttendanceRegulariseResponseDto(
  */
 @RestController
 @RequestMapping("/v1/attendance")
+@PreAuthorize("isAuthenticated()")
 class MobileAttendanceController(
     private val shiftRosterService: ShiftRosterService,
     private val punchIngestionService: PunchIngestionService,

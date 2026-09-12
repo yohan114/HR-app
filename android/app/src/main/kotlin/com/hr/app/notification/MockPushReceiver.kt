@@ -16,8 +16,24 @@ class MockPushReceiver : BroadcastReceiver() {
 
     var notificationManager: HrNotificationManager? = null
 
+    companion object {
+        const val ACTION_TEST_PUSH = "com.hr.app.action.TEST_PUSH"
+        const val ACTION_REGISTER_TOKEN = "com.hr.app.action.REGISTER_TOKEN"
+    }
+
     override fun onReceive(context: Context?, intent: Intent?) {
-        if (intent == null || intent.action != ACTION_TEST_PUSH) return
+        if (intent == null) return
+
+        if (intent.action == ACTION_REGISTER_TOKEN) {
+            val token = intent.getStringExtra("token")
+            context?.let { ctx ->
+                val provider = com.hr.app.data.auth.DeviceIdProvider(ctx.applicationContext ?: ctx)
+                provider.updatePushToken(token)
+            }
+            return
+        }
+
+        if (intent.action != ACTION_TEST_PUSH) return
 
         val manager = notificationManager ?: context?.let { ctx ->
             HrNotificationManager(ctx.applicationContext ?: ctx)
@@ -38,9 +54,5 @@ class MockPushReceiver : BroadcastReceiver() {
                 deepLink = deepLink,
             ),
         )
-    }
-
-    companion object {
-        const val ACTION_TEST_PUSH = "com.hr.app.action.TEST_PUSH"
     }
 }

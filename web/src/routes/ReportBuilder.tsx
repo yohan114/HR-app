@@ -1,5 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Badge, Button, Card, DataTable } from '@/components/ui'
+import { directoryApi } from '@/lib/api'
+import type { DirectoryEntry } from '@hr/client'
 
 export interface ReportColumnDef {
   key: string
@@ -39,7 +41,7 @@ const AVAILABLE_COLUMNS: ReportColumnDef[] = [
   { key: 'leave_balance', label: 'Remaining Leave Balance', source: 'leave', type: 'number', aggregation: 'AVG' },
 ]
 
-// Mock live rows dataset
+// Mock live rows dataset fallback
 const SEEDED_REPORT_ROWS = [
   { emp_code: 'E001', full_name: 'Nimali Wickramasinghe', department: 'Executive', designation: 'Chief Executive Officer', location: 'Colombo HQ', status: 'ACTIVE', join_date: '2022-01-15', basic_salary: 450000, gross_pay: 520000, net_pay: 420000, epf_statutory: 90000, logged_hours: 168, overtime_hours: 0, attendance_rate: 100, leave_taken: 2, leave_balance: 19 },
   { emp_code: 'E002', full_name: 'Ruwan Jayasuriya', department: 'Engineering', designation: 'Engineering Manager', location: 'Colombo HQ', status: 'ACTIVE', join_date: '2022-03-01', basic_salary: 280000, gross_pay: 320000, net_pay: 260000, epf_statutory: 56000, logged_hours: 172, overtime_hours: 8, attendance_rate: 98, leave_taken: 4, leave_balance: 14 },
@@ -68,12 +70,81 @@ export function ReportBuilder() {
   const [filters, setFilters] = useState<ReportFilter[]>([
     { id: 'fil-1', columnKey: 'status', operator: 'EQUALS', value: 'ACTIVE' },
   ])
+  const [reportRows, setReportRows] = useState(SEEDED_REPORT_ROWS)
+  const [isLiveDirectory, setIsLiveDirectory] = useState<boolean>(false)
 
   // Schedule state
   const [frequency, setFrequency] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY')
   const [recipients, setRecipients] = useState<string>('cfo@demo.local, hr-lead@demo.local')
   const [fileFormat, setFileFormat] = useState<'PDF' | 'EXCEL' | 'CSV'>('PDF')
   const [scheduleBanner, setScheduleBanner] = useState<string | null>(null)
+
+  // ---------------------------------------------------------------------------
+  // Load Live Directory & Restore Saved Configuration
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const saved = localStorage.getItem('hr_report_builder_config')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        if (parsed.reportTitle) setReportTitle(parsed.reportTitle)
+        if (Array.isArray(parsed.selectedColumnKeys)) setSelectedColumnKeys(parsed.selectedColumnKeys)
+        if (parsed.groupBy) setGroupBy(parsed.groupBy)
+        if (Array.isArray(parsed.filters)) setFilters(parsed.filters)
+      } catch {
+        // ignore
+      }
+    }
+
+    directoryApi
+      .searchDirectory({ limit: 100 })
+      .then((res) => {
+        const items = res.items ?? []
+        if (items.length > 0) {
+          const liveRows = items.map((it: DirectoryEntry, idx: number) => {
+            const seed = SEEDED_REPORT_ROWS[idx % SEEDED_REPORT_ROWS.length]!
+            return {
+              emp_code: it.employeeCode,
+              full_name: it.displayName,
+              department: it.department ?? seed.department,
+              designation: it.designation ?? seed.designation,
+              location: it.location ?? seed.location,
+              status: 'ACTIVE',
+              join_date: seed.join_date,
+              basic_salary: seed.basic_salary,
+              gross_pay: seed.gross_pay,
+              net_pay: seed.net_pay,
+              epf_statutory: seed.epf_statutory,
+              logged_hours: seed.logged_hours,
+              overtime_hours: seed.overtime_hours,
+              attendance_rate: seed.attendance_rate,
+              leave_taken: seed.leave_taken,
+              leave_balance: seed.leave_balance,
+            }
+          })
+          setReportRows(liveRows)
+          setIsLiveDirectory(true)
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not query directory for live report rows:', err)
+      })
+  }, [])
+
+  const persistConfig = (patch: {
+    reportTitle?: string
+    selectedColumnKeys?: string[]
+    groupBy?: string
+    filters?: ReportFilter[]
+  }) => {
+    const current = {
+      reportTitle: patch.reportTitle ?? reportTitle,
+      selectedColumnKeys: patch.selectedColumnKeys ?? selectedColumnKeys,
+      groupBy: patch.groupBy ?? groupBy,
+      filters: patch.filters ?? filters,
+    }
+    localStorage.setItem('hr_report_builder_config', JSON.stringify(current))
+  }
 
   // ---------------------------------------------------------------------------
   // Columns & Aggregations
@@ -85,16 +156,18 @@ export function ReportBuilder() {
   }, [selectedColumnKeys])
 
   const toggleColumn = (key: string) => {
-    setSelectedColumnKeys((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
-    )
+    setSelectedColumnKeys((prev) => {
+      const updated = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+      persistConfig({ selectedColumnKeys: updated })
+      return updated
+    })
   }
 
   // ---------------------------------------------------------------------------
   // Filtered Rows & Group Summaries
   // ---------------------------------------------------------------------------
   const filteredRows = useMemo(() => {
-    return SEEDED_REPORT_ROWS.filter((row) => {
+    return reportRows.filter((row) => {
       for (const f of filters) {
         const rowVal = String(row[f.columnKey as keyof typeof row] ?? '').toLowerCase()
         const targetVal = f.value.toLowerCase()
@@ -182,7 +255,19 @@ export function ReportBuilder() {
   }
 
   const handleSaveSchedule = () => {
-    setScheduleBanner(`Automated delivery scheduled: ${frequency} to [${recipients}] as ${fileFormat}.`)
+    try {
+      const scheduleRecord = {
+        reportTitle,
+        frequency,
+        recipients,
+        fileFormat,
+        savedAt: new Date().toISOString(),
+      }
+      localStorage.setItem('hr_report_schedules', JSON.stringify(scheduleRecord))
+    } catch {
+      // ignore
+    }
+    setScheduleBanner(`Automated delivery scheduled: ${frequency} to [${recipients}] as ${fileFormat}. Saved to scheduler registry.`)
     setTimeout(() => setScheduleBanner(null), 4000)
   }
 
@@ -197,6 +282,9 @@ export function ReportBuilder() {
             </h1>
             <Badge tone="success">Live Query: Ready</Badge>
             <Badge tone="neutral">{filteredRows.length} Rows</Badge>
+            <Badge tone="neutral">
+              {isLiveDirectory ? 'Connected: /v1/directory/search' : 'Demo Mode'}
+            </Badge>
           </div>
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-on-surface-muted)' }}>
             Create tailored cross-departmental queries, aggregate metrics, preview charts, and automate deliveries.

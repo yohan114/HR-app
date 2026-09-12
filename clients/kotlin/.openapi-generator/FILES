@@ -11,6 +11,7 @@ src/main/kotlin/com/hr/client/api/ApprovalsApi.kt
 src/main/kotlin/com/hr/client/api/AttendanceApi.kt
 src/main/kotlin/com/hr/client/api/AuthenticationApi.kt
 src/main/kotlin/com/hr/client/api/BenefitsApi.kt
+src/main/kotlin/com/hr/client/api/DashboardApi.kt
 src/main/kotlin/com/hr/client/api/DirectoryApi.kt
 src/main/kotlin/com/hr/client/api/DisciplinaryApi.kt
 src/main/kotlin/com/hr/client/api/DocumentsApi.kt
@@ -133,6 +134,8 @@ src/main/kotlin/com/hr/client/model/DailyAttendanceAdmin.kt
 src/main/kotlin/com/hr/client/model/DailyAttendanceListResponse.kt
 src/main/kotlin/com/hr/client/model/DailyAttendanceSummaryMetrics.kt
 src/main/kotlin/com/hr/client/model/DailyReconciliationItem.kt
+src/main/kotlin/com/hr/client/model/DashboardResponse.kt
+src/main/kotlin/com/hr/client/model/DashboardWidget.kt
 src/main/kotlin/com/hr/client/model/Device.kt
 src/main/kotlin/com/hr/client/model/DeviceInfo.kt
 src/main/kotlin/com/hr/client/model/DirectoryEntry.kt

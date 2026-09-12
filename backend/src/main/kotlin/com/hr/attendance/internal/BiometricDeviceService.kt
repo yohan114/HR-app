@@ -186,6 +186,24 @@ class BiometricDeviceService(
 
     // --- ZKTeco ADMS Ingestion ----------------------------------------------
 
+    fun authenticateDevice(serialNumber: String, token: String? = null): BiometricDevice? {
+        val sn = serialNumber.trim()
+        if (sn.isBlank() || sn.equals("ZK-UNKNOWN", ignoreCase = true)) {
+            return null
+        }
+        val device = deviceRepository.findBySerialNumber(sn).orElseGet {
+            ensureDefaultDevices().firstOrNull { it.serialNumber.equals(sn, ignoreCase = true) }
+        } ?: return null
+
+        if (!device.authToken.isNullOrBlank()) {
+            if (token == null || token != device.authToken) {
+                log.warn("Device token validation failed for device serial $sn")
+                return null
+            }
+        }
+        return device
+    }
+
     fun registerHeartbeat(serialNumber: String): BiometricDevice {
         val device = deviceRepository.findBySerialNumber(serialNumber).orElseGet {
             deviceRepository.save(

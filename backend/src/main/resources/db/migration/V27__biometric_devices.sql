@@ -53,5 +53,5 @@ CREATE TABLE biometric_device_command (
     CONSTRAINT biometric_cmd_status_valid CHECK (status IN ('PENDING', 'SENT', 'EXECUTED', 'FAILED'))
 );
 
-CREATE INDEX ix_biometric_device_cmd_device ON biometric_device_command (device_id);
+CREATE INDEX ix_biometric_device_cmd_tenant_device ON biometric_device_command (tenant_id, device_id);
 SELECT apply_tenant_rls('biometric_device_command');

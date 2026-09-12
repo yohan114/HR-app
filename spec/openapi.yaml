@@ -113,6 +113,8 @@ tags:
     description: Payroll cycles, pay groups, gross-to-net computation, run variance, and bank advice export
   - name: Leave
     description: Statutory and company leave policies, balance tracking, applications, and ledger movements
+  - name: Dashboard
+    description: Role-adaptive composite dashboard with widgets and quick actions
 
 
 
@@ -924,6 +926,24 @@ paths:
                 $ref: '#/components/schemas/NotificationSettings'
         '400':
           $ref: '#/components/responses/BadRequest'
+
+  /v1/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Role-adaptive composite dashboard
+      description: |
+        Returns aggregated KPIs, widgets, and quick actions dynamically tailored to the authenticated
+        user's roles and permissions. Cached with short TTL for maximum responsiveness.
+      operationId: getDashboard
+      responses:
+        '200':
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /v1/mobile/home:
     get:
@@ -6422,6 +6442,52 @@ components:
         brandColor: { type: string }
         defaultCurrency: { type: string }
         timezone: { type: string }
+
+    DashboardResponse:
+      type: object
+      required: [asOf, greeting, widgets, quickActions]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+        greeting:
+          type: string
+          description: Contextual greeting for the user (e.g. Good morning, Alex)
+        widgets:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardWidget'
+        quickActions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuickActionItem'
+
+    DashboardWidget:
+      type: object
+      required: [key, title, category, value, subtext, deepLink]
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        category:
+          type: string
+          enum: [METRIC, APPROVALS, ACTION, ALERT]
+        value:
+          type: string
+        subtext:
+          type: string
+        trend:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [NORMAL, WARNING, CRITICAL, SUCCESS]
+        deepLink:
+          type: string
+        permission:
+          type: string
+          nullable: true
 
     MobileHomeResponse:
       type: object

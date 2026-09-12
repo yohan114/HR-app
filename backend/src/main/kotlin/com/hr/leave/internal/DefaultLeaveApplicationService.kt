@@ -10,6 +10,10 @@ import com.hr.leave.LeaveApplicationService
 import com.hr.leave.LeaveEligibilityResult
 import com.hr.leave.LeaveYearStatus
 import com.hr.leave.LedgerEntryType
+import org.springframework.context.ApplicationEventPublisher
+import com.hr.leave.LeaveAppliedEvent
+import com.hr.leave.LeaveApprovedEvent
+import com.hr.leave.LeaveRejectedEvent
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -30,6 +34,7 @@ class DefaultLeaveApplicationService(
     private val applicationRepository: LeaveApplicationRepository,
     private val applicationDayRepository: LeaveApplicationDayRepository,
     private val publicHolidayRepository: PublicHolidayRepository,
+    private val eventPublisher: ApplicationEventPublisher? = null,
 ) : LeaveApplicationService {
 
     override fun checkEligibility(request: LeaveApplicationRequest): LeaveEligibilityResult {
@@ -211,7 +216,19 @@ class DefaultLeaveApplicationService(
             currentDate = currentDate.plusDays(1)
         }
 
-        return toDto(savedApp, leaveType.code, leaveType.name, dayDtos)
+        val resultDto = toDto(savedApp, leaveType.code, leaveType.name, dayDtos)
+        eventPublisher?.publishEvent(
+            LeaveAppliedEvent(
+                tenantId = employee.tenantId,
+                applicationId = savedApp.id,
+                employeeId = savedApp.employeeId,
+                leaveTypeName = leaveType.name,
+                startDate = savedApp.startDate,
+                endDate = savedApp.endDate,
+                totalDays = savedApp.totalDays,
+            ),
+        )
+        return resultDto
     }
 
     override fun approveApplication(
@@ -264,7 +281,25 @@ class DefaultLeaveApplicationService(
 
         ledgerRepository.save(ledgerEntry)
 
-        return getApplication(applicationId)
+        val approvedDto = getApplication(applicationId)
+        val leaveType = leaveTypeRepository.findById(application.leaveTypeId).orElse(null)
+        val tenantId = application.tenantId
+            ?: employeeLookupService.findById(application.employeeId)?.tenantId
+            ?: UUID.randomUUID()
+        eventPublisher?.publishEvent(
+            LeaveApprovedEvent(
+                tenantId = tenantId,
+                applicationId = application.id,
+                employeeId = application.employeeId,
+                approverId = approverId,
+                leaveTypeName = leaveType?.name ?: "Leave",
+                startDate = application.startDate,
+                endDate = application.endDate,
+                totalDays = application.totalDays,
+                remarks = remarks,
+            ),
+        )
+        return approvedDto
     }
 
     override fun rejectApplication(
@@ -285,7 +320,25 @@ class DefaultLeaveApplicationService(
         application.actionReason = reason
         applicationRepository.save(application)
 
-        return getApplication(applicationId)
+        val rejectedDto = getApplication(applicationId)
+        val leaveType = leaveTypeRepository.findById(application.leaveTypeId).orElse(null)
+        val tenantId = application.tenantId
+            ?: employeeLookupService.findById(application.employeeId)?.tenantId
+            ?: UUID.randomUUID()
+        eventPublisher?.publishEvent(
+            LeaveRejectedEvent(
+                tenantId = tenantId,
+                applicationId = application.id,
+                employeeId = application.employeeId,
+                approverId = approverId,
+                leaveTypeName = leaveType?.name ?: "Leave",
+                startDate = application.startDate,
+                endDate = application.endDate,
+                totalDays = application.totalDays,
+                reason = reason,
+            ),
+        )
+        return rejectedDto
     }
 
     override fun cancelApplication(

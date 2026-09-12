@@ -1,7 +1,10 @@
 package com.hr.performance.internal
 
+import com.hr.identity.Caller
 import com.hr.performance.*
+import com.hr.shared.api.NotFoundException
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
@@ -9,6 +12,7 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/performance")
+@PreAuthorize("isAuthenticated()")
 class PerformanceController(
     private val goalService: GoalService,
     private val appraisalService: AppraisalService,
@@ -154,7 +158,13 @@ class PerformanceController(
         )
     }
 
-    private fun resolveEmployeeId(jwt: Jwt?): UUID =
-        jwt?.getClaimAsString("employee_id")?.let { UUID.fromString(it) }
-            ?: UUID.fromString("00000000-0000-0000-0000-000000000001")
+    private fun resolveEmployeeId(jwt: Jwt?): UUID {
+        if (jwt != null) {
+            val caller = runCatching { Caller.from(jwt) }.getOrNull()
+            if (caller?.employeeId != null) {
+                return caller.employeeId
+            }
+        }
+        throw NotFoundException("NO_EMPLOYEE_RECORD", "This account is not linked to an employee record")
+    }
 }

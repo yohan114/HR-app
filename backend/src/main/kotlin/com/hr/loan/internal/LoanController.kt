@@ -9,6 +9,8 @@ import com.hr.loan.LoanEligibilityResponse
 import com.hr.loan.LoanSettlementRequest
 import com.hr.loan.LoanSettlementResponse
 import com.hr.loan.LoanTypesResponse
+import com.hr.shared.api.NotFoundException
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
@@ -22,6 +24,7 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/loans")
+@PreAuthorize("isAuthenticated()")
 class LoanController(
     private val loanService: LoanService,
 ) {
@@ -79,10 +82,11 @@ class LoanController(
 
     private fun resolveEmployeeId(jwt: Jwt?): UUID {
         if (jwt != null) {
-            runCatching {
-                Caller.from(jwt).employeeId
-            }.getOrNull()?.let { return it }
+            val caller = runCatching { Caller.from(jwt) }.getOrNull()
+            if (caller?.employeeId != null) {
+                return caller.employeeId
+            }
         }
-        return UUID.fromString("00000000-0000-0000-0000-000000000001")
+        throw NotFoundException("NO_EMPLOYEE_RECORD", "This account is not linked to an employee record")
     }
 }

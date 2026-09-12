@@ -1,5 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Badge, Button, Card, DataTable, Modal } from '@/components/ui'
+import { trainingApi } from '@/lib/api'
+import type { CourseListResponse, TrainingScheduleListResponse, TrainingCourseItem, TrainingScheduleItem } from '@hr/client'
 
 export interface TrainingCourse {
   id: string
@@ -229,6 +231,53 @@ export function Training() {
   const [schedules, setSchedules] = useState<TrainingSchedule[]>(INITIAL_SCHEDULES)
   const [enrollments, setEnrollments] = useState<TrainingEnrollment[]>(INITIAL_ENROLLMENTS)
   const [certificates, setCertificates] = useState<TrainingCertificate[]>(INITIAL_CERTIFICATES)
+
+  useEffect(() => {
+    trainingApi.listTrainingCourses({})
+      .then((res: CourseListResponse) => {
+        if (res.courses && res.courses.length > 0) {
+          setCourses(res.courses.map((c: TrainingCourseItem) => ({
+            id: c.id,
+            courseCode: c.courseCode,
+            title: c.title,
+            description: c.description ?? '',
+            category: (c.category as TrainingCourse['category']) || 'TECHNICAL',
+            deliveryMode: (c.deliveryMode as TrainingCourse['deliveryMode']) || 'CLASSROOM',
+            durationHours: c.durationHours,
+            targetAudience: c.targetAudience ?? 'All Staff',
+            maxCapacity: c.maxCapacity,
+            isActive: c.isActive,
+          })))
+        }
+      })
+      .catch(() => {
+        // Keep initial mock courses on local demo/offline
+      })
+
+    trainingApi.listTrainingSchedules({})
+      .then((res: TrainingScheduleListResponse) => {
+        if (res.schedules && res.schedules.length > 0) {
+          setSchedules(res.schedules.map((s: TrainingScheduleItem) => ({
+            id: s.id,
+            courseId: s.courseId,
+            courseTitle: s.courseTitle,
+            batchCode: s.batchCode,
+            trainerName: s.trainerName ?? 'Lead Facilitator',
+            startDate: s.startDate ? String(new Date(s.startDate).toISOString().split('T')[0] || '2026-03-15') : '2026-03-15',
+            endDate: s.endDate ? String(new Date(s.endDate).toISOString().split('T')[0] || '2026-03-20') : '2026-03-20',
+            venueName: s.venueName ?? 'Main Auditorium',
+            virtualUrl: s.virtualMeetingUrl,
+            totalSeats: s.totalSeats,
+            enrolledSeats: s.enrolledSeats,
+            status: (s.status as TrainingSchedule['status']) || 'SCHEDULED',
+            costPerParticipant: s.costPerParticipant ?? 0,
+          })))
+        }
+      })
+      .catch(() => {
+        // Keep initial mock schedules on local demo/offline
+      })
+  }, [])
 
   // Modals
   const [isCreateCourseOpen, setIsCreateCourseOpen] = useState<boolean>(false)

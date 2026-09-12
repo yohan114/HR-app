@@ -3,6 +3,7 @@ package com.hr.app.di
 import com.hr.app.BuildConfig
 import com.hr.client.api.ApprovalsApi
 import com.hr.client.api.AttendanceApi
+import com.hr.client.api.AuthenticationApi
 import com.hr.client.api.DirectoryApi
 import com.hr.client.api.EmployeesApi
 import com.hr.client.api.LeaveApi
@@ -35,6 +36,11 @@ object ApiModule {
     @Singleton
     fun provideApiClient(client: OkHttpClient): ApiClient =
         ApiClient(baseUrl = BuildConfig.API_BASE_URL, callFactory = client)
+
+    @Provides
+    @Singleton
+    fun provideAuthenticationApi(apiClient: ApiClient): AuthenticationApi =
+        apiClient.createService(AuthenticationApi::class.java)
 
     @Provides
     @Singleton

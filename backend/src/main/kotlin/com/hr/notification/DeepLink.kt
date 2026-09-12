@@ -16,6 +16,16 @@ object DeepLink {
 
     fun approvals(): String = "$SCHEME://approvals"
 
+    fun time(): String = "$SCHEME://time"
+
+    fun people(): String = "$SCHEME://people"
+
+    fun directory(): String = "$SCHEME://directory"
+
+    fun me(): String = "$SCHEME://me"
+
+    fun profile(): String = "$SCHEME://profile"
+
     fun leave(id: String): String = "$SCHEME://leave/$id"
 
     fun payslip(periodId: String): String = "$SCHEME://payslip/$periodId"
@@ -26,6 +36,11 @@ object DeepLink {
     val ROUTES: Set<String> =
         setOf(
             "$SCHEME://approvals",
+            "$SCHEME://time",
+            "$SCHEME://people",
+            "$SCHEME://directory",
+            "$SCHEME://me",
+            "$SCHEME://profile",
             "$SCHEME://leave/{id}",
             "$SCHEME://payslip/{periodId}",
             "$SCHEME://employee/{id}",

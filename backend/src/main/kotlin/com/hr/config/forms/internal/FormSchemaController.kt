@@ -3,6 +3,7 @@ package com.hr.config.forms.internal
 import com.hr.config.forms.FormSchema
 import com.hr.shared.api.ErrorCode
 import com.hr.shared.api.NotFoundException
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestHeader
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 @RequestMapping("/v1/forms")
+@PreAuthorize("isAuthenticated()")
 class FormSchemaController(
     private val formSchemaService: FormSchemaService,
 ) {

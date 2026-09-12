@@ -1,5 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Badge, Button, Card } from '@/components/ui'
+import { formsApi } from '@/lib/api'
+import type {
+  FormSchema as ApiFormSchema,
+  FormSection as ApiFormSection,
+  FormField as ApiFormField,
+} from '@hr/client'
 
 export type FieldType =
   | 'TEXT'
@@ -55,6 +61,43 @@ export interface FormSchemaState {
   entityType: string
   version: string
   sections: FormSectionItem[]
+}
+
+function mapApiSchemaToState(apiSchema: ApiFormSchema): FormSchemaState {
+  return {
+    entityType: apiSchema.entityType,
+    version: apiSchema.version,
+    sections: (apiSchema.sections || []).map((sec: ApiFormSection, sIdx: number) => ({
+      id: `sec-${sec.key || sIdx}`,
+      key: sec.key,
+      label: sec.label,
+      fields: (sec.fields || []).map((f: ApiFormField, fIdx: number) => ({
+        id: `f-${f.key || fIdx}`,
+        key: f.key,
+        label: f.label,
+        type: f.type as FieldType,
+        required: Boolean(f.required),
+        editable: f.editable ?? true,
+        helpText: f.helpText ?? undefined,
+        validation: f.validation
+          ? {
+              minLength: f.validation.minLength ?? undefined,
+              maxLength: f.validation.maxLength ?? undefined,
+              min: f.validation.min !== undefined ? Number(f.validation.min) : undefined,
+              max: f.validation.max !== undefined ? Number(f.validation.max) : undefined,
+              pattern: f.validation.pattern ?? undefined,
+              patternMessage: f.validation.patternMessage ?? undefined,
+            }
+          : undefined,
+        options: f.options?.map((opt) => ({
+          value: opt.value,
+          label: opt.label,
+        })),
+        referenceTable: f.referenceTable ?? undefined,
+        custom: Boolean(f.custom),
+      })),
+    })),
+  }
 }
 
 const DEFAULT_EMPLOYEE_SCHEMA: FormSchemaState = {
@@ -225,11 +268,104 @@ export function FormBuilder() {
   const [selectedFieldId, setSelectedFieldId] = useState<string>('f-4')
   const [previewMode, setPreviewMode] = useState<'designer' | 'desktop' | 'mobile'>('designer')
   const [saveBanner, setSaveBanner] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [isDraft, setIsDraft] = useState<boolean>(false)
+  const [serverVersion, setServerVersion] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const activeSection = schema.sections.find((s) => s.id === selectedSectionId) ?? schema.sections[0]
   const activeField = schema.sections
     .flatMap((s) => s.fields)
     .find((f) => f.id === selectedFieldId)
+
+  // ---------------------------------------------------------------------------
+  // Live API Fetch & Draft Loading
+  // ---------------------------------------------------------------------------
+  const loadSchema = async (targetEntity: string) => {
+    setIsLoading(true)
+    try {
+      const draftKey = `hr_form_draft_${targetEntity}`
+      const savedDraft = localStorage.getItem(draftKey)
+
+      const apiResult = await formsApi.getFormSchema({
+        entityType: targetEntity as 'employee' | 'company' | 'location' | 'department' | 'designation',
+      })
+      setServerVersion(apiResult.version)
+
+      if (savedDraft) {
+        try {
+          const parsed = JSON.parse(savedDraft) as FormSchemaState
+          if (parsed && Array.isArray(parsed.sections) && parsed.sections.length > 0) {
+            setSchema(parsed)
+            setIsDraft(true)
+            if (parsed.sections[0]) {
+              setSelectedSectionId(parsed.sections[0].id)
+              if (parsed.sections[0].fields[0]) {
+                setSelectedFieldId(parsed.sections[0].fields[0].id)
+              }
+            }
+            setIsLoading(false)
+            return
+          }
+        } catch {
+          // ignore corrupted draft
+        }
+      }
+
+      const mapped = mapApiSchemaToState(apiResult)
+      setSchema(mapped)
+      setIsDraft(false)
+      if (mapped.sections[0]) {
+        setSelectedSectionId(mapped.sections[0].id)
+        if (mapped.sections[0].fields[0]) {
+          setSelectedFieldId(mapped.sections[0].fields[0].id)
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch form schema from server, using base schema:', err)
+      // Fall back to default
+      if (targetEntity === 'employee') {
+        setSchema(DEFAULT_EMPLOYEE_SCHEMA)
+      } else {
+        setSchema({
+          entityType: targetEntity,
+          version: '1.0.0',
+          sections: [
+            {
+              id: `sec-${targetEntity}-general`,
+              key: 'general',
+              label: `${targetEntity.charAt(0).toUpperCase() + targetEntity.slice(1)} Details`,
+              fields: [
+                {
+                  id: 'f-name',
+                  key: 'name',
+                  label: 'Name / Title',
+                  type: 'TEXT',
+                  required: true,
+                  editable: true,
+                  custom: false,
+                },
+              ],
+            },
+          ],
+        })
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadSchema(schema.entityType)
+  }, [schema.entityType])
+
+  const handleResetToServer = async () => {
+    localStorage.removeItem(`hr_form_draft_${schema.entityType}`)
+    setIsDraft(false)
+    await loadSchema(schema.entityType)
+    setSaveBanner(`Reset form to live server schema v${serverVersion ?? 'base'}`)
+    setTimeout(() => setSaveBanner(null), 4000)
+  }
 
   // ---------------------------------------------------------------------------
   // Section Management
@@ -242,10 +378,15 @@ export function FormBuilder() {
       label: `New Section ${schema.sections.length + 1}`,
       fields: [],
     }
-    setSchema((prev) => ({
-      ...prev,
-      sections: [...prev.sections, newSection],
-    }))
+    setSchema((prev) => {
+      const updated = {
+        ...prev,
+        sections: [...prev.sections, newSection],
+      }
+      localStorage.setItem(`hr_form_draft_${prev.entityType}`, JSON.stringify(updated))
+      return updated
+    })
+    setIsDraft(true)
     setSelectedSectionId(newId)
   }
 
@@ -254,10 +395,15 @@ export function FormBuilder() {
       alert('A form must have at least one section.')
       return
     }
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.filter((s) => s.id !== sectionId),
-    }))
+    setSchema((prev) => {
+      const updated = {
+        ...prev,
+        sections: prev.sections.filter((s) => s.id !== sectionId),
+      }
+      localStorage.setItem(`hr_form_draft_${prev.entityType}`, JSON.stringify(updated))
+      return updated
+    })
+    setIsDraft(true)
     if (selectedSectionId === sectionId) {
       const remaining = schema.sections.filter((s) => s.id !== sectionId)
       if (remaining[0]) {
@@ -267,14 +413,19 @@ export function FormBuilder() {
   }
 
   const updateSectionLabel = (sectionId: string, label: string) => {
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((s) =>
-        s.id === sectionId
-          ? { ...s, label, key: label.toLowerCase().replace(/[^a-z0-9]+/g, '_') }
-          : s,
-      ),
-    }))
+    setSchema((prev) => {
+      const updated = {
+        ...prev,
+        sections: prev.sections.map((s) =>
+          s.id === sectionId
+            ? { ...s, label, key: label.toLowerCase().replace(/[^a-z0-9]+/g, '_') }
+            : s,
+        ),
+      }
+      localStorage.setItem(`hr_form_draft_${prev.entityType}`, JSON.stringify(updated))
+      return updated
+    })
+    setIsDraft(true)
   }
 
   // ---------------------------------------------------------------------------
@@ -301,57 +452,77 @@ export function FormBuilder() {
           : undefined,
     }
 
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((sec) =>
-        sec.id === activeSection.id
-          ? { ...sec, fields: [...sec.fields, newField] }
-          : sec,
-      ),
-    }))
+    setSchema((prev) => {
+      const updated = {
+        ...prev,
+        sections: prev.sections.map((sec) =>
+          sec.id === activeSection.id
+            ? { ...sec, fields: [...sec.fields, newField] }
+            : sec,
+        ),
+      }
+      localStorage.setItem(`hr_form_draft_${prev.entityType}`, JSON.stringify(updated))
+      return updated
+    })
+    setIsDraft(true)
     setSelectedFieldId(newFieldId)
   }
 
   const removeField = (fieldId: string) => {
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((sec) => ({
-        ...sec,
-        fields: sec.fields.filter((f) => f.id !== fieldId),
-      })),
-    }))
+    setSchema((prev) => {
+      const updated = {
+        ...prev,
+        sections: prev.sections.map((sec) => ({
+          ...sec,
+          fields: sec.fields.filter((f) => f.id !== fieldId),
+        })),
+      }
+      localStorage.setItem(`hr_form_draft_${prev.entityType}`, JSON.stringify(updated))
+      return updated
+    })
+    setIsDraft(true)
     if (selectedFieldId === fieldId) {
       setSelectedFieldId('')
     }
   }
 
   const moveField = (sectionId: string, fieldIndex: number, direction: 'up' | 'down') => {
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((sec) => {
-        if (sec.id !== sectionId) return sec
-        const newFields = [...sec.fields]
-        const targetIndex = direction === 'up' ? fieldIndex - 1 : fieldIndex + 1
-        if (targetIndex < 0 || targetIndex >= newFields.length) return sec
-        const currentItem = newFields[fieldIndex]
-        const targetItem = newFields[targetIndex]
-        if (!currentItem || !targetItem) return sec
-        newFields[fieldIndex] = targetItem
-        newFields[targetIndex] = currentItem
-        return { ...sec, fields: newFields }
-      }),
-    }))
+    setSchema((prev) => {
+      const updated = {
+        ...prev,
+        sections: prev.sections.map((sec) => {
+          if (sec.id !== sectionId) return sec
+          const newFields = [...sec.fields]
+          const targetIndex = direction === 'up' ? fieldIndex - 1 : fieldIndex + 1
+          if (targetIndex < 0 || targetIndex >= newFields.length) return sec
+          const currentItem = newFields[fieldIndex]
+          const targetItem = newFields[targetIndex]
+          if (!currentItem || !targetItem) return sec
+          newFields[fieldIndex] = targetItem
+          newFields[targetIndex] = currentItem
+          return { ...sec, fields: newFields }
+        }),
+      }
+      localStorage.setItem(`hr_form_draft_${prev.entityType}`, JSON.stringify(updated))
+      return updated
+    })
+    setIsDraft(true)
   }
 
   const updateActiveField = (patch: Partial<FormFieldItem>) => {
     if (!activeField) return
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((sec) => ({
-        ...sec,
-        fields: sec.fields.map((f) => (f.id === activeField.id ? { ...f, ...patch } : f)),
-      })),
-    }))
+    setSchema((prev) => {
+      const updated = {
+        ...prev,
+        sections: prev.sections.map((sec) => ({
+          ...sec,
+          fields: sec.fields.map((f) => (f.id === activeField.id ? { ...f, ...patch } : f)),
+        })),
+      }
+      localStorage.setItem(`hr_form_draft_${prev.entityType}`, JSON.stringify(updated))
+      return updated
+    })
+    setIsDraft(true)
   }
 
   const addOptionToField = () => {
@@ -377,14 +548,17 @@ export function FormBuilder() {
   }
 
   // ---------------------------------------------------------------------------
-  // Publish & Export
+  // Publish & Export & Import
   // ---------------------------------------------------------------------------
   const handlePublish = () => {
     const nextVersionParts = schema.version.split('.').map(Number)
     const minor = (nextVersionParts[1] ?? 0) + 1
     const newVer = `${nextVersionParts[0] ?? 1}.${minor}.${nextVersionParts[2] ?? 0}`
-    setSchema((prev) => ({ ...prev, version: newVer }))
-    setSaveBanner(`Form Schema published successfully as v${newVer}! Live on Android, iOS & Web.`)
+    const updated = { ...schema, version: newVer }
+    setSchema(updated)
+    localStorage.setItem(`hr_form_draft_${schema.entityType}`, JSON.stringify(updated))
+    setIsDraft(false)
+    setSaveBanner(`Form Schema for "${schema.entityType}" published successfully as v${newVer}! Changes persisted to local registry.`)
     setTimeout(() => setSaveBanner(null), 4000)
   }
 
@@ -398,6 +572,28 @@ export function FormBuilder() {
     downloadAnchor.remove()
   }
 
+  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string) as FormSchemaState
+        if (parsed && Array.isArray(parsed.sections)) {
+          setSchema(parsed)
+          setIsDraft(true)
+          localStorage.setItem(`hr_form_draft_${parsed.entityType || schema.entityType}`, JSON.stringify(parsed))
+          setSaveBanner(`Successfully imported schema configuration with ${parsed.sections.length} sections!`)
+          setTimeout(() => setSaveBanner(null), 4000)
+        }
+      } catch (err) {
+        alert('Invalid JSON file format for form schema.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
   return (
     <div className="builder-shell">
       {/* Header Bar */}
@@ -408,14 +604,26 @@ export function FormBuilder() {
               Dynamic Form & Custom Field Designer
             </h1>
             <Badge tone="success">v{schema.version}</Badge>
-            <Badge tone="neutral">Active Tenant: demo</Badge>
+            {isDraft ? (
+              <Badge tone="warning">Local Draft (Unsaved)</Badge>
+            ) : (
+              <Badge tone="neutral">Synced: /v1/forms/{schema.entityType}</Badge>
+            )}
+            {isLoading && <Badge tone="neutral">Loading...</Badge>}
           </div>
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-on-surface-muted)' }}>
-            Design and publish custom fields across Android, iOS, and Web without app updates or database migrations.
+            Design and publish custom fields across Android, iOS, and Web. Schema is live-queried from the backend.
           </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            accept=".json"
+            onChange={handleImportJson}
+          />
           <div style={{ display: 'flex', border: '1px solid var(--color-outline)', borderRadius: 'var(--radius-control)', overflow: 'hidden' }}>
             <button
               className="btn btn--ghost"
@@ -458,9 +666,17 @@ export function FormBuilder() {
             </button>
           </div>
 
+          <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
+            Import JSON
+          </Button>
           <Button variant="secondary" onClick={handleExportJson}>
             Export JSON
           </Button>
+          {isDraft && (
+            <Button variant="secondary" onClick={handleResetToServer}>
+              Reset Server
+            </Button>
+          )}
           <Button variant="primary" onClick={handlePublish}>
             Publish Schema
           </Button>
@@ -488,7 +704,11 @@ export function FormBuilder() {
               color: schema.entityType === ent ? 'var(--color-brand-on-primary-container)' : 'inherit',
               fontWeight: schema.entityType === ent ? 600 : 400,
             }}
-            onClick={() => setSchema((prev) => ({ ...prev, entityType: ent }))}
+            onClick={() => {
+              if (schema.entityType !== ent) {
+                setSchema((prev) => ({ ...prev, entityType: ent }))
+              }
+            }}
           >
             {ent.toUpperCase()}
           </button>

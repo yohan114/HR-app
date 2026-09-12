@@ -65,11 +65,13 @@ class AuthController(
         authenticationService.signOut(request?.refreshToken, userId)
     }
 
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @GetMapping("/devices")
     fun listDevices(
         @AuthenticationPrincipal jwt: Jwt,
     ): List<DeviceResponse> = deviceService.listForUser(currentUserId(jwt), currentDeviceId(jwt))
 
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @PostMapping("/devices")
     @ResponseStatus(HttpStatus.CREATED)
     fun registerDevice(
@@ -77,6 +79,7 @@ class AuthController(
         @AuthenticationPrincipal jwt: Jwt,
     ): DeviceResponse = deviceService.register(currentUserId(jwt), request)
 
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @DeleteMapping("/devices/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun revokeDevice(
@@ -147,6 +150,7 @@ class TenantResolveController {
  */
 @RestController
 @RequestMapping("/v1/me")
+@org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
 class MeController(
     private val users: AppUserRepository,
     private val permissionResolver: PermissionResolver,

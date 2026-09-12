@@ -2,6 +2,7 @@ package com.hr.employee.internal
 
 import com.hr.config.forms.FormSchema
 import com.hr.identity.Caller
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
@@ -18,21 +19,12 @@ import java.util.UUID
 /**
  * Employee profiles.
  *
- * No `@PreAuthorize` here, deliberately. Every authenticated employee may call
- * these endpoints — for their own record — so a blanket permission check would
- * either lock out self-service or be so weak it authorises nothing. The real
- * check is per-record and lives in [EmployeeService], where it has the record in
- * hand to compare against.
- *
- * The payload is a map rather than a fixed DTO because its shape depends on the
- * caller: fields they may not see are absent, and tenant-defined fields appear
- * under `customFields`. A DTO would have to declare every field nullable and
- * would lose the distinction between "absent because forbidden" and "null
- * because unset" — which is exactly the distinction the field permissions exist
- * to draw.
+ * Authenticated employees may access self-service endpoints; per-record authorization
+ * and field permissions are enforced in EmployeeService.
  */
 @RestController
 @RequestMapping("/v1/employees")
+@PreAuthorize("isAuthenticated()")
 class EmployeeController(
     private val employeeService: EmployeeService,
     private val employeeDocumentService: EmployeeDocumentService,

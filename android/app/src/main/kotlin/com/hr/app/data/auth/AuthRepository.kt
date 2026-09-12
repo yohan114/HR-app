@@ -192,6 +192,7 @@ class AuthRepository
                 model = "${Build.MANUFACTURER} ${Build.MODEL}",
                 osVersion = Build.VERSION.RELEASE,
                 appVersion = BuildConfig.VERSION_NAME,
+                pushToken = deviceIdProvider.pushToken(),
             )
 
         private fun <T> Response<T>.orThrow(): T {

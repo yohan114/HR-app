@@ -16,8 +16,8 @@ interface AuthState {
   user: MeResponse | null
   signIn: (orgCode: string, username: string, password: string) => Promise<void>
   signOut: () => Promise<void>
-  /** True when the current user holds `permission`. UI affordance only — the API enforces it. */
-  can: (permission: string) => boolean
+  /** True when the current user holds `permission`. Accepts single key or array (satisfies if user holds any). */
+  can: (permission: string | readonly string[] | string[]) => boolean
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -118,7 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearSession])
 
   const can = useCallback(
-    (permission: string) => user?.permissions.includes(permission) ?? false,
+    (permission: string | readonly string[] | string[]) => {
+      if (!user?.permissions) return false
+      if (Array.isArray(permission)) {
+        return permission.some((p) => user.permissions.includes(p))
+      }
+      return user.permissions.includes(permission as string)
+    },
     [user],
   )
 

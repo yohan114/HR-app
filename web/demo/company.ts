@@ -483,11 +483,124 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   { key: 'config.field.view', domain: 'Configuration', label: 'View Custom Fields', description: 'View tenant-configured profile fields and schemas' },
   { key: 'config.field.manage', domain: 'Configuration', label: 'Manage Custom Fields', description: 'Add, reorder, or edit custom profile fields and validation' },
   { key: 'config.label.manage', domain: 'Configuration', label: 'Manage Custom Labels', description: 'Localise and customize UI terminology and labels' },
+
+  // Leave Domain
+  { key: 'leave.policy.view', domain: 'Leave', label: 'View Leave Policies', description: 'View leave policies and types' },
+  { key: 'leave.policy.manage', domain: 'Leave', label: 'Manage Leave Policies', description: 'Create and modify leave policies' },
+  { key: 'leave.balance.view', domain: 'Leave', label: 'View Leave Balances', description: 'View leave balances' },
+  { key: 'leave.balance.manage', domain: 'Leave', label: 'Manage Leave Balances', description: 'Allocate and adjust leave balances' },
+  { key: 'leave.request.view', domain: 'Leave', label: 'View Leave Requests', description: 'View leave applications' },
+  { key: 'leave.request.create', domain: 'Leave', label: 'Apply for Leave', description: 'Submit a leave application' },
+  { key: 'leave.request.approve', domain: 'Leave', label: 'Approve Leave', description: 'Approve or reject leave applications' },
+
+  // Payroll Domain
+  { key: 'payroll.view', domain: 'Payroll', label: 'View Payroll Overview', description: 'View payroll overview and pay groups' },
+  { key: 'payroll.config.view', domain: 'Payroll', label: 'View Pay Groups', description: 'View pay groups and salary structures' },
+  { key: 'payroll.config.manage', domain: 'Payroll', label: 'Manage Pay Groups', description: 'Manage pay groups and formula items' },
+  { key: 'payroll.run.view', domain: 'Payroll', label: 'View Payroll Runs', description: 'View payroll runs and calculation details' },
+  { key: 'payroll.run.manage', domain: 'Payroll', label: 'Process Payroll', description: 'Execute, process, and finalize payroll runs' },
+  { key: 'payroll.payslip.view', domain: 'Payroll', label: 'View Payslips', description: 'View employee payslips' },
+  { key: 'payroll.payslip.manage', domain: 'Payroll', label: 'Publish Payslips', description: 'Publish and manage payslips' },
+  { key: 'payroll.report.view', domain: 'Payroll', label: 'View Payroll Reports', description: 'View and export payroll reports and bank advice' },
+
+  // Attendance Domain
+  { key: 'attendance.record.view', domain: 'Attendance', label: 'View Attendance Records', description: 'View attendance punches and daily summaries' },
+  { key: 'attendance.record.manage', domain: 'Attendance', label: 'Manage Attendance', description: 'Adjust attendance records and resolve exceptions' },
+  { key: 'attendance.punch.create', domain: 'Attendance', label: 'Clock In/Out', description: 'Submit clock-in and clock-out punches' },
+  { key: 'attendance.shift.view', domain: 'Attendance', label: 'View Shifts', description: 'View shift rosters and schedules' },
+  { key: 'attendance.shift.manage', domain: 'Attendance', label: 'Manage Shifts', description: 'Configure shifts and assign rosters' },
+  { key: 'attendance.device.view', domain: 'Attendance', label: 'View Terminals', description: 'View biometric attendance devices' },
+  { key: 'attendance.device.manage', domain: 'Attendance', label: 'Manage Terminals', description: 'Register and configure biometric devices' },
+
+  // Loans Domain
+  { key: 'loan.type.view', domain: 'Loans', label: 'View Loan Types', description: 'View loan products and terms' },
+  { key: 'loan.type.manage', domain: 'Loans', label: 'Manage Loan Types', description: 'Configure loan products' },
+  { key: 'loan.request.view', domain: 'Loans', label: 'View Loans', description: 'View loan applications and active loans' },
+  { key: 'loan.request.create', domain: 'Loans', label: 'Apply for Loan', description: 'Apply for an employee loan' },
+  { key: 'loan.request.approve', domain: 'Loans', label: 'Approve Loans', description: 'Approve or reject loan applications' },
+  { key: 'loan.settle', domain: 'Loans', label: 'Settle Loans', description: 'Process early loan settlements' },
+
+  // Expenses Domain
+  { key: 'expense.type.view', domain: 'Expenses', label: 'View Expense Types', description: 'View expense categories and policies' },
+  { key: 'expense.type.manage', domain: 'Expenses', label: 'Manage Expense Types', description: 'Configure expense categories' },
+  { key: 'expense.claim.view', domain: 'Expenses', label: 'View Expense Claims', description: 'View expense claims' },
+  { key: 'expense.claim.create', domain: 'Expenses', label: 'Submit Expense Claim', description: 'Submit an expense claim' },
+  { key: 'expense.claim.approve', domain: 'Expenses', label: 'Approve Expense Claims', description: 'Approve or reject expense claims' },
+  { key: 'expense.claim.reimburse', domain: 'Expenses', label: 'Reimburse Claims', description: 'Process reimbursement payments' },
+
+  // Benefits Domain
+  { key: 'benefit.plan.view', domain: 'Benefits', label: 'View Benefit Plans', description: 'View benefit plans' },
+  { key: 'benefit.plan.manage', domain: 'Benefits', label: 'Manage Benefit Plans', description: 'Configure benefit plans and eligibility' },
+  { key: 'benefit.enrolment.view', domain: 'Benefits', label: 'View Benefit Enrolments', description: 'View benefit enrolments and claims' },
+  { key: 'benefit.enrolment.manage', domain: 'Benefits', label: 'Manage Benefit Claims', description: 'Manage benefit enrolments and adjudicate claims' },
+
+  // Employee Lifecycle Domain
+  { key: 'lifecycle.movement.view', domain: 'Lifecycle', label: 'View Movements', description: 'View employee promotions, transfers, and status changes' },
+  { key: 'lifecycle.movement.manage', domain: 'Lifecycle', label: 'Manage Movements', description: 'Initiate and process employee movements' },
+  { key: 'lifecycle.probation.view', domain: 'Lifecycle', label: 'View Probations', description: 'View probation statuses and reviews' },
+  { key: 'lifecycle.probation.manage', domain: 'Lifecycle', label: 'Manage Probations', description: 'Complete and confirm probation evaluations' },
+
+  // Disciplinary & Grievance Domain
+  { key: 'disciplinary.case.view', domain: 'Disciplinary', label: 'View Disciplinary Cases', description: 'View disciplinary cases' },
+  { key: 'disciplinary.case.manage', domain: 'Disciplinary', label: 'Manage Disciplinary Cases', description: 'Open, investigate, and close disciplinary cases' },
+  { key: 'disciplinary.grievance.view', domain: 'Disciplinary', label: 'View Grievances', description: 'View employee grievances' },
+  { key: 'disciplinary.grievance.manage', domain: 'Disciplinary', label: 'Manage Grievances', description: 'Manage and resolve grievance submissions' },
+
+  // Performance & Goals Domain
+  { key: 'performance.cycle.view', domain: 'Performance', label: 'View Appraisal Cycles', description: 'View performance appraisal cycles' },
+  { key: 'performance.cycle.manage', domain: 'Performance', label: 'Manage Appraisal Cycles', description: 'Configure appraisal cycles, templates, and scales' },
+  { key: 'performance.review.view', domain: 'Performance', label: 'View Performance Reviews', description: 'View performance reviews and ratings' },
+  { key: 'performance.review.manage', domain: 'Performance', label: 'Conduct Reviews', description: 'Submit and finalize performance reviews' },
+  { key: 'performance.goal.view', domain: 'Performance', label: 'View Goals', description: 'View performance goals and OKRs' },
+  { key: 'performance.goal.manage', domain: 'Performance', label: 'Manage Goals', description: 'Assign and track goals' },
+
+  // Recruitment & ATS Domain
+  { key: 'recruitment.job.view', domain: 'Recruitment', label: 'View Job Requisitions', description: 'View job requisitions and postings' },
+  { key: 'recruitment.job.manage', domain: 'Recruitment', label: 'Manage Requisitions', description: 'Create and publish job requisitions' },
+  { key: 'recruitment.candidate.view', domain: 'Recruitment', label: 'View Candidates', description: 'View candidate applications and resumes' },
+  { key: 'recruitment.candidate.manage', domain: 'Recruitment', label: 'Manage Candidates', description: 'Manage applicant pipeline, stages, and interviews' },
+  { key: 'recruitment.offer.manage', domain: 'Recruitment', label: 'Issue Offers', description: 'Issue job offers and compensation packages' },
+
+  // Onboarding & Offboarding Domain
+  { key: 'onboarding.task.view', domain: 'Onboarding', label: 'View Onboarding Tasks', description: 'View onboarding workflows and tasks' },
+  { key: 'onboarding.task.manage', domain: 'Onboarding', label: 'Manage Onboarding', description: 'Assign and complete onboarding task lists' },
+  { key: 'offboarding.task.view', domain: 'Onboarding', label: 'View Offboarding Tasks', description: 'View offboarding workflows and clearance' },
+  { key: 'offboarding.task.manage', domain: 'Onboarding', label: 'Manage Offboarding', description: 'Process employee exit clearance' },
+
+  // Documents & Signatures Domain
+  { key: 'document.template.view', domain: 'Documents', label: 'View Document Templates', description: 'View document templates' },
+  { key: 'document.template.manage', domain: 'Documents', label: 'Manage Templates', description: 'Create and edit document templates' },
+  { key: 'document.employee.view', domain: 'Documents', label: 'View Employee Documents', description: 'View employee documents and files' },
+  { key: 'document.employee.manage', domain: 'Documents', label: 'Manage Documents', description: 'Upload, verify, and delete employee documents' },
+  { key: 'document.signature.view', domain: 'Documents', label: 'View Signatures', description: 'View e-signature requests and status' },
+  { key: 'document.signature.manage', domain: 'Documents', label: 'Sign Documents', description: 'Initiate and sign electronic documents' },
+
+  // Training & Development Domain
+  { key: 'training.course.view', domain: 'Training', label: 'View Training Courses', description: 'View training course catalogue' },
+  { key: 'training.course.manage', domain: 'Training', label: 'Manage Courses', description: 'Manage courses, competencies, and materials' },
+  { key: 'training.schedule.view', domain: 'Training', label: 'View Training Schedules', description: 'View training schedules and sessions' },
+  { key: 'training.schedule.manage', domain: 'Training', label: 'Manage Schedules', description: 'Schedule training sessions and trainers' },
+  { key: 'training.enrolment.view', domain: 'Training', label: 'View Enrolments', description: 'View training enrolments and completions' },
+  { key: 'training.enrolment.manage', domain: 'Training', label: 'Manage Enrolments', description: 'Nominate, enroll, and mark course completion' },
+
+  // Timesheets & Billing Domain
+  { key: 'timesheet.record.view', domain: 'Timesheets', label: 'View Timesheets', description: 'View timesheets and project time entries' },
+  { key: 'timesheet.record.manage', domain: 'Timesheets', label: 'Manage Projects', description: 'Manage time tracking projects and tasks' },
+  { key: 'timesheet.submit', domain: 'Timesheets', label: 'Submit Timesheet', description: 'Submit timesheets for approval' },
+  { key: 'timesheet.approve', domain: 'Timesheets', label: 'Approve Timesheet', description: 'Approve or reject timesheets' },
+
+  // Biometric Terminals Domain
+  { key: 'biometric.device.view', domain: 'Attendance', label: 'View Biometric Terminals', description: 'View biometric devices' },
+  { key: 'biometric.device.manage', domain: 'Attendance', label: 'Manage Biometric Terminals', description: 'Register and configure biometric devices' },
+  { key: 'biometric.command.manage', domain: 'Attendance', label: 'Command Terminals', description: 'Queue commands to biometric devices' },
+
+  // Dashboard Domain
+  { key: 'dashboard.view', domain: 'Dashboard', label: 'View Dashboard', description: 'View role-based dashboard widgets and analytics' },
 ]
 
 export const ALL_PERMISSIONS: readonly string[] = PERMISSION_CATALOG.map((p) => p.key)
 
-/** The four system roles from `provision_tenant_defaults`, with the grants `V8` gives them. */
+/** The system roles from provision_tenant_defaults (V28) with their grants. */
 export const ROLE_PERMISSIONS = {
   ADMIN: ALL_PERMISSIONS,
   HR_ADMIN: [
@@ -497,12 +610,76 @@ export const ROLE_PERMISSIONS = {
     'identity.device.revoke',
     'platform.audit.view',
     'org.structure.view',
+    'org.structure.manage',
     'org.reference.view',
+    'org.reference.manage',
     'config.field.view',
+    'config.field.manage',
+    'config.label.manage',
     'employee.view',
     'employee.view.all',
     'employee.manage',
     'employee.directory',
+    'employee.document.view',
+    'leave.policy.view',
+    'leave.policy.manage',
+    'leave.balance.view',
+    'leave.balance.manage',
+    'leave.request.view',
+    'leave.request.approve',
+    'attendance.record.view',
+    'attendance.record.manage',
+    'attendance.shift.view',
+    'attendance.shift.manage',
+    'attendance.device.view',
+    'attendance.device.manage',
+    'biometric.device.view',
+    'biometric.device.manage',
+    'biometric.command.manage',
+    'benefit.plan.view',
+    'benefit.plan.manage',
+    'benefit.enrolment.view',
+    'benefit.enrolment.manage',
+    'lifecycle.movement.view',
+    'lifecycle.movement.manage',
+    'lifecycle.probation.view',
+    'lifecycle.probation.manage',
+    'disciplinary.case.view',
+    'disciplinary.case.manage',
+    'disciplinary.grievance.view',
+    'disciplinary.grievance.manage',
+    'performance.cycle.view',
+    'performance.cycle.manage',
+    'performance.review.view',
+    'performance.review.manage',
+    'performance.goal.view',
+    'performance.goal.manage',
+    'recruitment.job.view',
+    'recruitment.job.manage',
+    'recruitment.candidate.view',
+    'recruitment.candidate.manage',
+    'recruitment.offer.manage',
+    'onboarding.task.view',
+    'onboarding.task.manage',
+    'offboarding.task.view',
+    'offboarding.task.manage',
+    'document.template.view',
+    'document.template.manage',
+    'document.employee.view',
+    'document.employee.manage',
+    'document.signature.view',
+    'document.signature.manage',
+    'training.course.view',
+    'training.course.manage',
+    'training.schedule.view',
+    'training.schedule.manage',
+    'training.enrolment.view',
+    'training.enrolment.manage',
+    'timesheet.record.view',
+    'timesheet.approve',
+    'loan.request.view',
+    'loan.request.approve',
+    'dashboard.view',
   ],
   MANAGER: [
     'identity.user.view',
@@ -510,9 +687,97 @@ export const ROLE_PERMISSIONS = {
     'org.reference.view',
     'employee.view',
     'employee.directory',
+    'leave.request.view',
+    'leave.request.approve',
+    'attendance.record.view',
+    'attendance.shift.view',
+    'expense.claim.view',
+    'expense.claim.approve',
+    'timesheet.record.view',
+    'timesheet.approve',
+    'performance.review.view',
+    'performance.review.manage',
+    'performance.goal.view',
+    'performance.goal.manage',
+    'dashboard.view',
   ],
-  // Self-service access is authorised by ownership, not by a grant. See V8's comment.
-  EMPLOYEE: ['employee.directory', 'org.reference.view'],
+  EMPLOYEE: [
+    'employee.directory',
+    'org.reference.view',
+    'leave.request.create',
+    'leave.request.view',
+    'expense.claim.create',
+    'expense.claim.view',
+    'loan.request.create',
+    'loan.request.view',
+    'attendance.punch.create',
+    'attendance.record.view',
+    'timesheet.submit',
+    'timesheet.record.view',
+    'training.course.view',
+    'training.enrolment.view',
+    'document.signature.manage',
+    'performance.goal.view',
+    'benefit.enrolment.view',
+    'dashboard.view',
+  ],
+  FINANCE: [
+    'org.reference.view',
+    'employee.directory',
+    'employee.salary.view',
+    'employee.bank.view',
+    'payroll.view',
+    'payroll.config.view',
+    'payroll.config.manage',
+    'payroll.run.view',
+    'payroll.run.manage',
+    'payroll.payslip.view',
+    'payroll.payslip.manage',
+    'payroll.report.view',
+    'expense.claim.view',
+    'expense.claim.approve',
+    'expense.claim.reimburse',
+    'loan.type.view',
+    'loan.type.manage',
+    'loan.request.view',
+    'loan.request.approve',
+    'loan.settle',
+    'timesheet.record.view',
+    'benefit.plan.view',
+    'benefit.enrolment.view',
+    'dashboard.view',
+  ],
+  RECRUITER: [
+    'org.structure.view',
+    'org.reference.view',
+    'employee.directory',
+    'recruitment.job.view',
+    'recruitment.job.manage',
+    'recruitment.candidate.view',
+    'recruitment.candidate.manage',
+    'recruitment.offer.manage',
+    'onboarding.task.view',
+    'dashboard.view',
+  ],
+  AUDITOR: [
+    'org.structure.view',
+    'org.reference.view',
+    'platform.audit.view',
+    'employee.directory',
+    'employee.view',
+    'leave.policy.view',
+    'leave.request.view',
+    'attendance.record.view',
+    'payroll.view',
+    'payroll.run.view',
+    'payroll.report.view',
+    'loan.request.view',
+    'expense.claim.view',
+    'benefit.plan.view',
+    'performance.review.view',
+    'recruitment.job.view',
+    'dashboard.view',
+  ],
 }
 
 export interface DemoRole {
@@ -545,7 +810,7 @@ export const INITIAL_ROLES: DemoRole[] = [
     id: 'role-manager',
     code: 'MANAGER',
     name: 'Manager',
-    description: 'Supervisory visibility over direct reports and team structures.',
+    description: 'Supervisory visibility over direct reports, approvals, and team structures.',
     isSystem: true,
     permissions: [...ROLE_PERMISSIONS.MANAGER],
   },
@@ -553,26 +818,35 @@ export const INITIAL_ROLES: DemoRole[] = [
     id: 'role-employee',
     code: 'EMPLOYEE',
     name: 'Employee',
-    description: 'Standard self-service profile and company directory access.',
+    description: 'Standard self-service profile, attendance, and company directory access.',
     isSystem: true,
     permissions: [...ROLE_PERMISSIONS.EMPLOYEE],
   },
   {
-    id: 'role-payroll-officer',
-    code: 'PAYROLL_OFFICER',
-    name: 'Payroll Specialist',
-    description: 'Custom role with access to compensation details, bank records, and employee directory.',
-    isSystem: false,
-    permissions: [
-      'employee.directory',
-      'employee.view',
-      'employee.bank.view',
-      'employee.salary.view',
-      'org.reference.view',
-    ],
+    id: 'role-finance',
+    code: 'FINANCE',
+    name: 'Finance / Payroll Officer',
+    description: 'Executes payroll runs, manages compensation, expense reimbursements, and loans.',
+    isSystem: true,
+    permissions: [...ROLE_PERMISSIONS.FINANCE],
+  },
+  {
+    id: 'role-recruiter',
+    code: 'RECRUITER',
+    name: 'Recruitment Specialist',
+    description: 'Manages candidate pipelines, job requisitions, and interviews.',
+    isSystem: true,
+    permissions: [...ROLE_PERMISSIONS.RECRUITER],
+  },
+  {
+    id: 'role-auditor',
+    code: 'AUDITOR',
+    name: 'Auditor',
+    description: 'Read-only compliance and statutory reporting audit access.',
+    isSystem: true,
+    permissions: [...ROLE_PERMISSIONS.AUDITOR],
   },
 ]
-
 
 /* -------------------------------------------------------------------------- */
 /* Accounts                                                                    */
@@ -587,25 +861,10 @@ export interface DemoAccount {
   employeeCode: string
   role: string
   status: AccountStatus
-  /** What the account exists to demonstrate. Printed in the startup banner. */
   purpose: string
-  /**
-   * Per-user field grants, mirroring rows in the `field_permission` table.
-   *
-   * An explicit grant beats the sensitive-field default, which is precisely why the default is a
-   * default and not a prohibition — see `FieldPermissionResolver.accessFor`.
-   */
   fieldGrants?: Record<string, 'HIDDEN' | 'MASKED' | 'READ' | 'WRITE'>
 }
 
-/**
- * Five accounts, each reachable with any password.
- *
- * The first three are `LocalDemoSeeder`'s, unchanged. `hr` is added because HR_ADMIN is the role
- * that shows the separation the field-permission design exists for: it may edit anybody's record
- * and still cannot see their date of birth. `locked` is added because an error envelope nobody can
- * trigger is an error envelope nobody has tested.
- */
 export const ACCOUNTS: readonly DemoAccount[] = [
   {
     userId: demoId(ID_GROUP.user, 1),
@@ -615,8 +874,6 @@ export const ACCOUNTS: readonly DemoAccount[] = [
     role: 'ADMIN',
     status: 'ACTIVE',
     purpose: 'everything, linked to the CEO’s record; granted sight of sensitive fields',
-    // Without this nobody in the demo can edit a date, and the profile form's date handling —
-    // which has its own paragraph of commentary about `toISOString` — would never run.
     fieldGrants: { dateOfBirth: 'WRITE', personalEmail: 'WRITE', salaryGradeId: 'READ' },
   },
   {
@@ -626,7 +883,7 @@ export const ACCOUNTS: readonly DemoAccount[] = [
     employeeCode: 'E002',
     role: 'MANAGER',
     status: 'ACTIVE',
-    purpose: 'employee.view without view.all — sees its own reporting subtree, 404 for anyone else',
+    purpose: 'team approvals, direct reports, attendance exceptions',
   },
   {
     userId: demoId(ID_GROUP.user, 3),
@@ -635,7 +892,7 @@ export const ACCOUNTS: readonly DemoAccount[] = [
     employeeCode: 'E004',
     role: 'EMPLOYEE',
     status: 'ACTIVE',
-    purpose: 'directory only; its own record is authorised by ownership, not by a grant',
+    purpose: 'self-service directory, attendance punch, leave requests, own payslips',
   },
   {
     userId: demoId(ID_GROUP.user, 4),
@@ -644,10 +901,46 @@ export const ACCOUNTS: readonly DemoAccount[] = [
     employeeCode: 'E003',
     role: 'HR_ADMIN',
     status: 'ACTIVE',
-    purpose: 'may edit every record and still may not see a date of birth',
+    purpose: 'workforce management, onboarding, disciplinary, talent operations',
   },
   {
     userId: demoId(ID_GROUP.user, 5),
+    username: 'hr.admin',
+    email: 'hr.admin@demo.local',
+    employeeCode: 'E003',
+    role: 'HR_ADMIN',
+    status: 'ACTIVE',
+    purpose: 'alias for HR Admin account',
+  },
+  {
+    userId: demoId(ID_GROUP.user, 6),
+    username: 'finance',
+    email: 'finance@demo.local',
+    employeeCode: 'E005',
+    role: 'FINANCE',
+    status: 'ACTIVE',
+    purpose: 'payroll calculation, expense reimbursement disbursement, staff loans',
+  },
+  {
+    userId: demoId(ID_GROUP.user, 7),
+    username: 'recruiter',
+    email: 'recruiter@demo.local',
+    employeeCode: 'E007',
+    role: 'RECRUITER',
+    status: 'ACTIVE',
+    purpose: 'talent acquisition, candidate stages, job requisitions',
+  },
+  {
+    userId: demoId(ID_GROUP.user, 8),
+    username: 'auditor',
+    email: 'auditor@demo.local',
+    employeeCode: 'E008',
+    role: 'AUDITOR',
+    status: 'ACTIVE',
+    purpose: 'statutory and regulatory compliance read-only auditor',
+  },
+  {
+    userId: demoId(ID_GROUP.user, 9),
     username: 'locked',
     email: 'locked@demo.local',
     employeeCode: 'E006',

@@ -26,6 +26,37 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = providers.environmentVariable("KEYSTORE_FILE")
+                .orElse(providers.gradleProperty("KEYSTORE_FILE"))
+                .orNull
+            val keystorePassword = providers.environmentVariable("KEYSTORE_PASSWORD")
+                .orElse(providers.gradleProperty("KEYSTORE_PASSWORD"))
+                .orNull
+            val keyAlias = providers.environmentVariable("KEY_ALIAS")
+                .orElse(providers.gradleProperty("KEY_ALIAS"))
+                .orNull
+            val keyPassword = providers.environmentVariable("KEY_PASSWORD")
+                .orElse(providers.gradleProperty("KEY_PASSWORD"))
+                .orNull
+
+            if (keystoreFile != null && file(keystoreFile).exists()) {
+                storeFile = file(keystoreFile)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            } else {
+                // Fall back to debug signing when release keystore is absent (e.g. in local development / CI dry-run)
+                val debugConfig = signingConfigs.getByName("debug")
+                storeFile = debugConfig.storeFile
+                storePassword = debugConfig.storePassword
+                this.keyAlias = debugConfig.keyAlias
+                this.keyPassword = debugConfig.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -34,6 +65,7 @@ android {
             // Certificate pinning is disabled in debug so a proxy can be attached while
             // developing. It is enforced in release — see NetworkModule.
             buildConfigField("boolean", "CERTIFICATE_PINNING", "false")
+            buildConfigField("String", "CERTIFICATE_PINS", "\"\"")
 
             // Whether the debug build answers its own HTTP calls from fixtures.
             //
@@ -62,11 +94,21 @@ android {
             isProfileable = true
         }
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "API_BASE_URL", "\"https://api.hrapp.io/\"")
-            buildConfigField("boolean", "CERTIFICATE_PINNING", "true")
+            buildConfigField(
+                "boolean",
+                "CERTIFICATE_PINNING",
+                providers.gradleProperty("certificatePinning").getOrElse("false"),
+            )
+            buildConfigField(
+                "String",
+                "CERTIFICATE_PINS",
+                "\"${providers.gradleProperty("certificatePins").getOrElse("")}\"",
+            )
         }
     }
 

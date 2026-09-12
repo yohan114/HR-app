@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Badge, Button, Card, DataTable, Modal } from '@/components/ui'
+import { loansApi } from '@/lib/api'
 
 export interface LoanProduct {
   id: string
@@ -211,6 +212,52 @@ export function Loans() {
   const [products, setProducts] = useState<LoanProduct[]>(INITIAL_PRODUCTS)
   const [applications, setApplications] = useState<LoanApplication[]>(INITIAL_APPLICATIONS)
   const [activeLoans, setActiveLoans] = useState<ActiveLoan[]>(INITIAL_ACTIVE_LOANS)
+
+  useEffect(() => {
+    loansApi.getLoanTypes()
+      .then((res) => {
+        if (res.types && res.types.length > 0) {
+          setProducts(res.types.map((t) => ({
+            id: t.id,
+            code: t.code,
+            name: t.name,
+            description: t.description ?? '',
+            minAmount: t.minPrincipal,
+            maxAmount: t.maxPrincipal,
+            interestRateAnnual: t.annualInterestRate,
+            maxTenureMonths: t.maxTenureMonths,
+            interestType: (t.interestMethod as unknown as LoanProduct['interestType']) || 'REDUCING_BALANCE',
+            requiresGuarantor: false,
+          })))
+        }
+      })
+      .catch(() => {
+        // Keep initial products on local demo/offline
+      })
+
+    loansApi.getMyLoans()
+      .then((res) => {
+        if (res.loans && res.loans.length > 0) {
+          setActiveLoans(res.loans.map((l) => ({
+            id: l.id,
+            loanReference: l.loanCode,
+            employeeName: 'Current User',
+            productName: l.loanTypeName,
+            disbursedAmount: l.principalAmount,
+            outstandingPrincipal: l.remainingBalance,
+            monthlyInstallment: l.monthlyInstallment,
+            paidInstallments: 0,
+            totalInstallments: l.tenureMonths,
+            disbursedDate: l.disbursedDate ? String(new Date(l.disbursedDate).toISOString().split('T')[0] || '2026-01-15') : '2026-01-15',
+            nextDueDate: '2026-04-01',
+            status: (l.status === 'ACTIVE' || l.status === 'SETTLED' ? l.status : 'ACTIVE') as ActiveLoan['status'],
+          })))
+        }
+      })
+      .catch(() => {
+        // Keep initial active loans on local demo/offline
+      })
+  }, [])
 
   // Amortization modal
   const [selectedLoanForSchedule, setSelectedLoanForSchedule] = useState<ActiveLoan | null>(null)

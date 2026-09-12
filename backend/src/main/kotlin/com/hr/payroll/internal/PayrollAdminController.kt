@@ -7,6 +7,7 @@ import com.hr.identity.Caller
 import com.hr.payroll.*
 import com.hr.shared.api.NotFoundException
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.transaction.annotation.Transactional
@@ -153,6 +154,7 @@ data class BankAdviceResponseDto(
 
 @RestController
 @RequestMapping("/v1/payroll")
+@PreAuthorize("hasAnyAuthority('payroll.run.manage', 'payroll.run.view', 'payroll.view')")
 @Transactional
 class PayrollAdminController(
     private val payGroupRepository: PayGroupRepository,

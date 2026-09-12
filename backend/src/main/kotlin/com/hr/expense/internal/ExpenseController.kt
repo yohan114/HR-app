@@ -2,7 +2,9 @@ package com.hr.expense.internal
 
 import com.hr.expense.*
 import com.hr.identity.Caller
+import com.hr.shared.api.NotFoundException
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
@@ -10,6 +12,7 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/expenses")
+@PreAuthorize("isAuthenticated()")
 class ExpenseController(
     private val expenseService: ExpenseService,
 ) {
@@ -68,10 +71,11 @@ class ExpenseController(
 
     private fun resolveEmployeeId(jwt: Jwt?): UUID {
         if (jwt != null) {
-            runCatching {
-                Caller.from(jwt).employeeId
-            }.getOrNull()?.let { return it }
+            val caller = runCatching { Caller.from(jwt) }.getOrNull()
+            if (caller?.employeeId != null) {
+                return caller.employeeId
+            }
         }
-        return UUID.fromString("00000000-0000-0000-0000-000000000001")
+        throw NotFoundException("NO_EMPLOYEE_RECORD", "This account is not linked to an employee record")
     }
 }

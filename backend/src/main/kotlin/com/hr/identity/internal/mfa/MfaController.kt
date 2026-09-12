@@ -66,17 +66,20 @@ class MfaController(
     // Enrolment and management — require a live session
     // ------------------------------------------------------------------------
 
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @GetMapping
     fun status(
         @AuthenticationPrincipal jwt: Jwt,
     ): MfaStatus = mfaService.status(Caller.from(jwt).userId)
 
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @PostMapping("/enrol")
     fun beginEnrolment(
         @AuthenticationPrincipal jwt: Jwt,
     ): MfaEnrolment = mfaService.beginEnrolment(Caller.from(jwt).userId)
 
     /** Returns the recovery codes. This is the only time they exist in plaintext. */
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @PostMapping("/enrol/confirm")
     fun confirmEnrolment(
         @Valid @RequestBody request: MfaCodeRequest,
@@ -84,6 +87,7 @@ class MfaController(
     ): RecoveryCodesResponse =
         RecoveryCodesResponse(mfaService.confirmEnrolment(Caller.from(jwt).userId, request.code))
 
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @PostMapping("/disable")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun disable(
@@ -91,6 +95,7 @@ class MfaController(
         @AuthenticationPrincipal jwt: Jwt,
     ) = mfaService.disable(Caller.from(jwt).userId, request.code)
 
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     @PostMapping("/recovery-codes")
     fun regenerateRecoveryCodes(
         @Valid @RequestBody request: MfaCodeRequest,

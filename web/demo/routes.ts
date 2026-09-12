@@ -147,6 +147,13 @@ function requirePermission(caller: Caller, permission: string): void {
   })
 }
 
+function requireAnyPermission(caller: Caller, ...permissions: string[]): void {
+  if (permissions.some((p) => caller.permissions.has(p))) return
+  throw forbidden('INSUFFICIENT_PERMISSION', `This account does not hold any of ${permissions.join(', ')}`, {
+    permission: permissions[0],
+  })
+}
+
 /* -------------------------------------------------------------------------- */
 /* Authentication endpoints                                                    */
 /* -------------------------------------------------------------------------- */
@@ -2034,12 +2041,14 @@ export function buildRouter(world: World): Router {
 /* -------------------------------------------------------------------------- */
 
 function listPayGroups(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
   return { status: 200, body: { payGroups: Array.from(world.payGroups.values()) } }
 }
 
 function listPayPeriods(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
   const payGroupId = request.query.get('payGroupId')
   let periods = Array.from(world.payPeriods.values())
   if (payGroupId) {
@@ -2049,7 +2058,8 @@ function listPayPeriods(world: World, request: DemoRequest): DemoReply {
 }
 
 function getPayrollRuns(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
   const payPeriodId = request.query.get('payPeriodId')
   let runs = Array.from(world.payrollRuns.values())
   if (payPeriodId) {
@@ -2059,7 +2069,8 @@ function getPayrollRuns(world: World, request: DemoRequest): DemoReply {
 }
 
 function getPayrollRun(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
   const id = pathParam(request, 'id')
   const run = world.payrollRuns.get(id)
   if (!run) throw notFound('Payroll run not found')
@@ -2067,7 +2078,8 @@ function getPayrollRun(world: World, request: DemoRequest): DemoReply {
 }
 
 function calculatePayrollRun(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.run.manage')
   const body = objectBody(request)
   const payGroupId = stringField(body, 'payGroupId') || 'pg-lk-monthly'
   const payPeriodId = stringField(body, 'payPeriodId') || 'period-2026-m03'
@@ -2101,7 +2113,8 @@ function calculatePayrollRun(world: World, request: DemoRequest): DemoReply {
 }
 
 function approvePayrollRun(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.run.manage')
   const id = pathParam(request, 'id')
   const run = world.payrollRuns.get(id)
   if (!run) throw notFound('Payroll run not found')
@@ -2112,7 +2125,8 @@ function approvePayrollRun(world: World, request: DemoRequest): DemoReply {
 }
 
 function commitPayrollRun(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.run.manage')
   const id = pathParam(request, 'id')
   const run = world.payrollRuns.get(id)
   if (!run) throw notFound('Payroll run not found')
@@ -2136,7 +2150,8 @@ function commitPayrollRun(world: World, request: DemoRequest): DemoReply {
 }
 
 function listPayrollResults(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
   const id = pathParam(request, 'id')
   const department = request.query.get('department')
   const q = request.query.get('q')?.trim().toLowerCase()
@@ -2158,7 +2173,8 @@ function listPayrollResults(world: World, request: DemoRequest): DemoReply {
 }
 
 function getPayrollResultDetails(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
   const runId = pathParam(request, 'id')
   const resultId = pathParam(request, 'resultId')
   const results = world.payrollResultsByRun.get(runId) ?? []
@@ -2169,7 +2185,8 @@ function getPayrollResultDetails(world: World, request: DemoRequest): DemoReply 
 }
 
 function getPayrollVariance(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
   const runId = pathParam(request, 'id')
   const currentRun = world.payrollRuns.get(runId)
   if (!currentRun) throw notFound('Payroll run not found')
@@ -2222,7 +2239,8 @@ function getPayrollVariance(world: World, request: DemoRequest): DemoReply {
 }
 
 function generateBankAdvice(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.run.manage')
   const runId = pathParam(request, 'id')
   const run = world.payrollRuns.get(runId)
   if (!run) throw notFound('Payroll run not found')
@@ -2653,7 +2671,8 @@ const reqStr = (src: Record<string, unknown>, key: string, fallback = ''): strin
   src[key] !== undefined && src[key] !== null ? String(src[key]) : fallback
 
 function listVacancies(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.job.view')
   const status = request.query.get('status')
   const department = request.query.get('department')
   let list = Array.from(world.vacancies.values())
@@ -2663,7 +2682,8 @@ function listVacancies(world: World, request: DemoRequest): DemoReply {
 }
 
 function createVacancy(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.job.manage')
   const body = objectBody(request)
   const id = `vac-${Date.now().toString(36)}`
   const vacancy = {
@@ -2687,7 +2707,8 @@ function createVacancy(world: World, request: DemoRequest): DemoReply {
 }
 
 function getVacancy(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.job.view')
   const id = pathParam(request, 'id')
   const vacancy = world.vacancies.get(id)
   if (!vacancy) throw notFound(`Vacancy ${id} not found`)
@@ -2695,7 +2716,8 @@ function getVacancy(world: World, request: DemoRequest): DemoReply {
 }
 
 function listCandidates(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.view')
   const search = request.query.get('search')?.toLowerCase()
   let list = Array.from(world.candidates.values())
   if (search) {
@@ -2711,7 +2733,8 @@ function listCandidates(world: World, request: DemoRequest): DemoReply {
 }
 
 function createCandidate(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.manage')
   const body = objectBody(request)
   const id = `cand-${Date.now().toString(36)}`
   const candidate = {
@@ -2731,7 +2754,8 @@ function createCandidate(world: World, request: DemoRequest): DemoReply {
 }
 
 function listApplications(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.view')
   const vacancyId = request.query.get('vacancyId')
   const candidateId = request.query.get('candidateId')
   const stage = request.query.get('stage')
@@ -2743,7 +2767,8 @@ function listApplications(world: World, request: DemoRequest): DemoReply {
 }
 
 function createApplication(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.manage')
   const body = objectBody(request)
   const vacancyId = reqStr(body, 'vacancyId')
   const candidateId = reqStr(body, 'candidateId')
@@ -2767,7 +2792,8 @@ function createApplication(world: World, request: DemoRequest): DemoReply {
 }
 
 function updateApplicationStage(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.manage')
   const id = pathParam(request, 'id')
   const app = world.applications.get(id)
   if (!app) throw notFound(`Application ${id} not found`)
@@ -2781,7 +2807,8 @@ function updateApplicationStage(world: World, request: DemoRequest): DemoReply {
 }
 
 function listInterviews(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.view')
   const applicationId = request.query.get('applicationId')
   let list = Array.from(world.interviews.values())
   if (applicationId) list = list.filter((i: any) => i.applicationId === applicationId)
@@ -2789,7 +2816,8 @@ function listInterviews(world: World, request: DemoRequest): DemoReply {
 }
 
 function scheduleInterview(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.manage')
   const body = objectBody(request)
   const applicationId = reqStr(body, 'applicationId')
   const app = world.applications.get(applicationId)
@@ -2812,7 +2840,8 @@ function scheduleInterview(world: World, request: DemoRequest): DemoReply {
 }
 
 function submitScorecard(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.candidate.manage')
   const interviewId = pathParam(request, 'id')
   const interview = world.interviews.get(interviewId)
   if (!interview) throw notFound(`Interview ${interviewId} not found`)
@@ -2837,7 +2866,8 @@ function submitScorecard(world: World, request: DemoRequest): DemoReply {
 }
 
 function getApplicationOffer(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'recruitment.offer.manage')
   const id = pathParam(request, 'id')
   const offer = world.offers.get(id)
   return { status: 200, body: { offer: offer ?? null } }
@@ -3595,13 +3625,15 @@ function sendContinuousFeedback(world: World, request: DemoRequest): DemoReply {
 /* -------------------------------------------------------------------------- */
 
 function listOnboardingProfiles(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'onboarding.task.view')
   const items = Array.from(world.onboardingProfiles.values())
   return { status: 200, body: { items, totalCount: items.length } }
 }
 
 function listOnboardingInstances(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'onboarding.task.view')
   const status = request.query.get('status')
   let items = Array.from(world.onboardingInstances.values())
   if (status && status !== 'ALL') items = items.filter((i) => i.status === status)
@@ -3609,7 +3641,8 @@ function listOnboardingInstances(world: World, request: DemoRequest): DemoReply 
 }
 
 function createOnboardingInstance(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'onboarding.task.manage')
   const body = objectBody(request)
   const id = `onb-${Date.now()}`
   const emp = world.employees.get(body.employeeId as string) || Array.from(world.employees.values())[0]
@@ -3664,7 +3697,8 @@ function createOnboardingInstance(world: World, request: DemoRequest): DemoReply
 }
 
 function getOnboardingInstance(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'onboarding.task.view')
   const id = pathParam(request, 'id')
   const instance = world.onboardingInstances.get(id)
   if (!instance) throw notFound('Onboarding instance not found')
@@ -3673,7 +3707,8 @@ function getOnboardingInstance(world: World, request: DemoRequest): DemoReply {
 }
 
 function completeOnboardingTask(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'onboarding.task.manage')
   const taskId = pathParam(request, 'id')
 
   for (const [instId, tasks] of world.onboardingTasks.entries()) {
@@ -3699,13 +3734,15 @@ function completeOnboardingTask(world: World, request: DemoRequest): DemoReply {
 }
 
 function listExitTypes(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'offboarding.task.view')
   const items = Array.from(world.exitTypes.values())
   return { status: 200, body: { items } }
 }
 
 function listExitNotices(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'offboarding.task.view')
   const status = request.query.get('status')
   let items = Array.from(world.exitNotices.values())
   if (status && status !== 'ALL') items = items.filter((n) => n.status === status)
@@ -3742,6 +3779,7 @@ function createExitNotice(world: World, request: DemoRequest): DemoReply {
 
 function approveExitNotice(world: World, request: DemoRequest): DemoReply {
   const { caller } = authenticate(world, request)
+  requirePermission(caller, 'offboarding.task.manage')
   const id = pathParam(request, 'id')
   const notice = world.exitNotices.get(id)
   if (!notice) throw notFound('Exit notice not found')
@@ -3757,7 +3795,8 @@ function approveExitNotice(world: World, request: DemoRequest): DemoReply {
 }
 
 function getClearanceMatrix(world: World, request: DemoRequest): DemoReply {
-  authenticate(world, request)
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'offboarding.task.view')
   const exitNoticeId = pathParam(request, 'id')
   const notice = world.exitNotices.get(exitNoticeId)
   if (!notice) throw notFound('Exit notice not found')

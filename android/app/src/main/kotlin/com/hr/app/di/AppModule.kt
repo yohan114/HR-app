@@ -20,6 +20,7 @@ import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.Multibinds
 import kotlinx.serialization.json.Json
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+import okhttp3.CertificatePinner
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -102,9 +103,24 @@ object AppModule {
                     )
                 }
                 if (BuildConfig.CERTIFICATE_PINNING) {
-                    // Pins are configured per environment and always include a backup pin, so a
-                    // certificate rotation does not brick every installed app.
-                    // TODO(P0-AND-08): supply pins from the release configuration.
+                    val pinHost = BuildConfig.API_BASE_URL
+                        .removePrefix("https://")
+                        .removePrefix("http://")
+                        .substringBefore("/")
+                        .substringBefore(":")
+                    if (pinHost.isNotBlank()) {
+                        val pinnerBuilder = CertificatePinner.Builder()
+                        val pins = BuildConfig.CERTIFICATE_PINS
+                            .split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                        pins.forEach { pin ->
+                            pinnerBuilder.add(pinHost, pin)
+                        }
+                        if (pins.isNotEmpty()) {
+                            certificatePinner(pinnerBuilder.build())
+                        }
+                    }
                 }
             }
             // Last, deliberately. An interceptor here may short-circuit the call, and everything

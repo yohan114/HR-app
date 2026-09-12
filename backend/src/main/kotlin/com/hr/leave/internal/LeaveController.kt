@@ -12,6 +12,7 @@ import com.hr.leave.LeaveYearStatus
 import com.hr.leave.LedgerEntryType
 import com.hr.shared.api.NotFoundException
 import org.springframework.http.HttpStatus
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
@@ -158,6 +159,7 @@ data class TeamCalendarResponseDto(
 
 @RestController
 @RequestMapping("/v1/leave")
+@PreAuthorize("isAuthenticated()")
 class LeaveController(
     private val leaveBalanceService: LeaveBalanceService,
     private val leaveApplicationService: LeaveApplicationService,

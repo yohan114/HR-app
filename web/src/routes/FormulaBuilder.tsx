@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Badge, Button, Card } from '@/components/ui'
 
 export interface FormulaVariable {
@@ -93,7 +93,28 @@ export function FormulaBuilder() {
   const [ruleName, setRuleName] = useState<string>('Sri Lanka EPF Employee Deduction (8%)')
   const [targetCode, setTargetCode] = useState<string>('epf_employee_deduction')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [rulesList, setRulesList] = useState<FormulaPreset[]>(() => {
+    const saved = localStorage.getItem('hr_formula_registry_rules')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed
+      } catch {
+        // ignore
+      }
+    }
+    return FORMULA_PRESETS
+  })
   const [testValues, setTestValues] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem('hr_formula_test_values')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        if (parsed && typeof parsed === 'object') return parsed
+      } catch {
+        // ignore
+      }
+    }
     const initial: Record<string, number> = {}
     VARIABLES_CATALOG.forEach((v) => {
       initial[v.key] = v.defaultValue
@@ -101,6 +122,7 @@ export function FormulaBuilder() {
     return initial
   })
   const [saveBanner, setSaveBanner] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ---------------------------------------------------------------------------
   // Expression Parser & Safe Evaluator
@@ -253,8 +275,48 @@ export function FormulaBuilder() {
   }
 
   const handleSaveRule = () => {
-    setSaveBanner(`Formula Rule "${ruleName}" saved to live Payroll Calculation Registry!`)
+    const newRule: FormulaPreset = {
+      id: `rule_${Date.now()}`,
+      name: ruleName,
+      category: 'Custom',
+      description: `Target: ${targetCode}`,
+      expression,
+      targetField: targetCode,
+    }
+    const updated = [newRule, ...rulesList.filter((r) => r.name !== ruleName)]
+    setRulesList(updated)
+    localStorage.setItem('hr_formula_registry_rules', JSON.stringify(updated))
+    setSaveBanner(`Formula Rule "${ruleName}" saved to local calculation registry!`)
     setTimeout(() => setSaveBanner(null), 4000)
+  }
+
+  const handleExportFormulas = () => {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(rulesList, null, 2))
+    const a = document.createElement('a')
+    a.href = dataStr
+    a.download = `hr_formula_registry_${new Date().toISOString().split('T')[0]}.json`
+    a.click()
+  }
+
+  const handleImportFormulas = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string) as FormulaPreset[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRulesList(parsed)
+          localStorage.setItem('hr_formula_registry_rules', JSON.stringify(parsed))
+          setSaveBanner(`Imported ${parsed.length} formula rules into registry!`)
+          setTimeout(() => setSaveBanner(null), 4000)
+        }
+      } catch {
+        alert('Invalid JSON file format for formulas.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
   }
 
   return (
@@ -267,7 +329,7 @@ export function FormulaBuilder() {
               Formula & Calculation Expression Studio
             </h1>
             <Badge tone="success">Engine: Active</Badge>
-            <Badge tone="neutral">Payroll & Leave</Badge>
+            <Badge tone="neutral">Registry: Local Persistence Active</Badge>
           </div>
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-on-surface-muted)' }}>
             Construct mathematical and conditional formulas for statutory deductions, overtime tiers, and leave policies.
@@ -275,11 +337,24 @@ export function FormulaBuilder() {
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            accept=".json"
+            onChange={handleImportFormulas}
+          />
+          <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
+            Import JSON
+          </Button>
+          <Button variant="secondary" onClick={handleExportFormulas}>
+            Export JSON
+          </Button>
           <Button variant="secondary" onClick={() => setExpression('')}>
-            Clear Formula
+            Clear
           </Button>
           <Button variant="primary" disabled={!isValid} onClick={handleSaveRule}>
-            Save Formula Rule
+            Save Rule
           </Button>
         </div>
       </div>
@@ -294,11 +369,11 @@ export function FormulaBuilder() {
       <div style={{ background: 'var(--color-surface-raised)', padding: 'var(--space-3)', borderRadius: 'var(--radius-control)', border: '1px solid var(--color-outline-variant)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
           <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-on-surface-muted)' }}>
-            PRE-BUILT STATUTORY & PAYROLL FORMULA TEMPLATES
+            ACTIVE & PRE-BUILT CALCULATION FORMULAS ({rulesList.length})
           </span>
         </div>
         <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: '4px' }}>
-          {FORMULA_PRESETS.map((p) => (
+          {rulesList.map((p) => (
             <button
               key={p.id}
               className="btn btn--ghost"

@@ -4,9 +4,11 @@ import {
   DirectoryApi,
   EmployeesApi,
   FormsApi,
+  LoansApi,
   MeApi,
   ReferenceApi,
   ResponseError,
+  TrainingApi,
   type ApiErrorResponse,
   type Middleware,
   type RequestContext,
@@ -156,6 +158,47 @@ export const directoryApi = new DirectoryApi(configuration)
 export const employeesApi = new EmployeesApi(configuration)
 export const formsApi = new FormsApi(configuration)
 export const referenceApi = new ReferenceApi(configuration)
+export const loansApi = new LoansApi(configuration)
+export const trainingApi = new TrainingApi(configuration)
+
+export interface DashboardWidget {
+  key: string
+  title: string
+  category: 'METRIC' | 'APPROVALS' | 'ACTION' | 'ALERT'
+  value: string
+  subtext: string
+  trend?: string | null
+  status?: 'NORMAL' | 'WARNING' | 'CRITICAL' | 'SUCCESS' | null
+  deepLink: string
+  permission?: string | null
+}
+
+export interface DashboardResponse {
+  asOf: string
+  greeting: string
+  widgets: DashboardWidget[]
+  quickActions: Array<{
+    key: string
+    label: string
+    icon: string
+    actionUri: string
+  }>
+}
+
+export async function fetchDashboard(): Promise<DashboardResponse> {
+  const token = tokens.getAccessToken()
+  const res = await fetch(`${BASE_PATH}/v1/dashboard`, {
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(tokens.getTenantCode() ? { 'X-Tenant-Code': tokens.getTenantCode()! } : {}),
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch dashboard: ${res.status}`)
+  }
+  return (await res.json()) as DashboardResponse
+}
 
 /**
  * Extracts the machine-readable code from the standard error envelope.

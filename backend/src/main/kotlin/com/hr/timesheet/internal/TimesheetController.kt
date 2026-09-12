@@ -4,6 +4,7 @@ import com.hr.timesheet.*
 import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
@@ -12,6 +13,7 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/v1/timesheets")
+@PreAuthorize("isAuthenticated()")
 class TimesheetController(
     private val timesheetService: TimesheetService,
 ) {
