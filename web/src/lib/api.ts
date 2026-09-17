@@ -869,6 +869,115 @@ export interface BankAdviceResponse {
   mimeType: string
 }
 
+export interface EpfMemberRecord {
+  memberNo: string
+  nic: string
+  fullName: string
+  initialsAndSurname: string
+  department: string
+  contributoryEarnings: number
+  memberShare8: number
+  employerShare12: number
+  totalContribution20: number
+  status: 'ACTIVE' | 'NEW' | 'EXITED'
+}
+
+export interface EpfCFormResponse {
+  employerRegistrationNo: string
+  employerName: string
+  employerAddress: string
+  contributionMonth: string
+  paymentDueDate: string
+  remittanceRef: string
+  chequeOrTransferDate: string
+  currency: string
+  totalContributoryEarnings: number
+  totalMemberShare8: number
+  totalEmployerShare12: number
+  totalRemittance20: number
+  memberCount: number
+  members: EpfMemberRecord[]
+  electronicFile: {
+    filename: string
+    content: string
+    mimeType: string
+  }
+}
+
+export interface EtfMemberRecord {
+  memberNo: string
+  nic: string
+  fullName: string
+  department: string
+  contributoryEarnings: number
+  employerContribution3: number
+}
+
+export interface EtfScheduleResponse {
+  employerRegistrationNo: string
+  employerName: string
+  contributionMonth: string
+  currency: string
+  totalContributoryEarnings: number
+  totalEmployerContribution3: number
+  memberCount: number
+  members: EtfMemberRecord[]
+  electronicFile: {
+    filename: string
+    content: string
+    mimeType: string
+  }
+}
+
+export interface T10MonthlyBreakdown {
+  monthName: string
+  periodCode: string
+  grossRemuneration: number
+  nonCashBenefits: number
+  totalAssessableRemuneration: number
+  apitTaxDeducted: number
+  remittanceDate: string
+  remittanceRef: string
+}
+
+export interface T10CertificateData {
+  employer: {
+    name: string
+    tin: string
+    address: string
+    employerEpfNo: string
+  }
+  employee: {
+    id: string
+    code: string
+    fullName: string
+    nic: string
+    tin: string
+    designation: string
+    department: string
+    epfNo: string
+  }
+  assessmentYear: string
+  periodCovered: string
+  monthlySchedule: T10MonthlyBreakdown[]
+  totals: {
+    annualGrossRemuneration: number
+    annualNonCashBenefits: number
+    annualAssessableRemuneration: number
+    statutoryReliefThreshold: number
+    taxableRemuneration: number
+    annualApitTaxDeducted: number
+    annualNetPaid: number
+  }
+  declaration: {
+    statement: string
+    signatoryName: string
+    signatoryTitle: string
+    issuedDate: string
+    digitalSealHash: string
+  }
+}
+
 export const payrollApi = {
   async listPayGroups(): Promise<{ payGroups: PayGroup[] }> {
     return apiFetch<{ payGroups: PayGroup[] }>('/v1/payroll/pay-groups')
@@ -943,6 +1052,25 @@ export const payrollApi = {
       method: 'POST',
       body: JSON.stringify(data),
     })
+  },
+
+  async getEpfCForm(runId: string): Promise<EpfCFormResponse> {
+    return apiFetch<EpfCFormResponse>(`/v1/payroll/runs/${runId}/statutory/epf-cform`)
+  },
+
+  async getEtfSchedule(runId: string): Promise<EtfScheduleResponse> {
+    return apiFetch<EtfScheduleResponse>(`/v1/payroll/runs/${runId}/statutory/etf-schedule`)
+  },
+
+  async getT10Certificate(
+    runId: string,
+    employeeId: string,
+    assessmentYear?: string,
+  ): Promise<T10CertificateData> {
+    const qs = assessmentYear ? `?year=${encodeURIComponent(assessmentYear)}` : ''
+    return apiFetch<T10CertificateData>(
+      `/v1/payroll/runs/${runId}/statutory/t10-certificate/${employeeId}${qs}`,
+    )
   },
 }
 

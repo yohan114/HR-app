@@ -1947,6 +1947,9 @@ export function buildRouter(world: World): Router {
     .on('GET', '/v1/payroll/runs/:id/results/:resultId', (request) => getPayrollResultDetails(world, request))
     .on('GET', '/v1/payroll/runs/:id/variance', (request) => getPayrollVariance(world, request))
     .on('POST', '/v1/payroll/runs/:id/bank-advice', (request) => generateBankAdvice(world, request))
+    .on('GET', '/v1/payroll/runs/:id/statutory/epf-cform', (request) => getEpfCFormSchedule(world, request))
+    .on('GET', '/v1/payroll/runs/:id/statutory/etf-schedule', (request) => getEtfRemittanceSchedule(world, request))
+    .on('GET', '/v1/payroll/runs/:id/statutory/t10-certificate/:employeeId', (request) => getEmployeeT10Certificate(world, request))
 
     // Attendance & Shift Roster (P2-BE / P2-WEB)
     .on('GET', '/v1/attendance/shifts', (request) => listShifts(world, request))
@@ -2341,6 +2344,331 @@ function generateBankAdvice(world: World, request: DemoRequest): DemoReply {
       totalAmount,
       batchHash,
       mimeType: 'text/csv',
+    },
+  }
+}
+
+function getEmployeeNic(emp: DemoEmployee | undefined, index: number): string {
+  if (emp?.dateOfBirth) {
+    const year = emp.dateOfBirth.slice(0, 4)
+    const dayOfYear = String(((index * 17 + 105) % 365) + 1).padStart(3, '0')
+    const seq = String(((index * 37 + 1204) % 8999) + 1000)
+    return `${year}${dayOfYear}0${seq}`
+  }
+  return `1990${String(100 + index).padStart(3, '0')}0${String(2000 + index)}`
+}
+
+function getEmployeeTin(index: number): string {
+  return String(100000000 + (index + 1) * 38291).slice(0, 9)
+}
+
+function getEpfCFormSchedule(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
+  const runId = pathParam(request, 'id')
+  const run = world.payrollRuns.get(runId)
+  if (!run) throw notFound('Payroll run not found')
+
+  const period = world.payPeriods.get(run.payPeriodId)
+  const contributionMonth = period?.code ? period.code.replace('period-', '') : '2026-03'
+  const results = world.payrollResultsByRun.get(runId) ?? []
+
+  let totalContributoryEarnings = 0
+  let totalMemberShare8 = 0
+  let totalEmployerShare12 = 0
+
+  const members = results.map((r, idx) => {
+    const emp = world.employees.get(r.employeeId)
+    const memberNo = (emp?.customFields?.epfNumber as string) || `A/${12000 + idx}`
+    const nic = getEmployeeNic(emp, idx)
+    const fullName = r.employeeName
+    const nameParts = fullName.trim().split(' ')
+    const initialsAndSurname =
+      nameParts.length > 1
+        ? `${nameParts.slice(0, -1).map((p) => p.charAt(0) + '.').join(' ')} ${nameParts[nameParts.length - 1]}`
+        : fullName
+
+    // In Sri Lanka, EPF base is basic + fixed allowances (contributory earnings)
+    const contributoryEarnings =
+      r.totalStatutoryEmployee > 0
+        ? Math.round((r.totalStatutoryEmployee / 0.08) * 100) / 100
+        : r.basicSalary
+    const memberShare8 = r.totalStatutoryEmployee
+    const employerShare12 = Math.round(contributoryEarnings * 0.12 * 100) / 100
+    const totalContribution20 = Math.round((memberShare8 + employerShare12) * 100) / 100
+
+    totalContributoryEarnings += contributoryEarnings
+    totalMemberShare8 += memberShare8
+    totalEmployerShare12 += employerShare12
+
+    const status: 'ACTIVE' | 'NEW' | 'EXITED' =
+      emp?.status === 'EXITED' ? 'EXITED' : emp?.status === 'PROBATION' ? 'NEW' : 'ACTIVE'
+
+    return {
+      memberNo,
+      nic,
+      fullName,
+      initialsAndSurname,
+      department: r.department,
+      contributoryEarnings,
+      memberShare8,
+      employerShare12,
+      totalContribution20,
+      status,
+    }
+  })
+
+  totalContributoryEarnings = Math.round(totalContributoryEarnings * 100) / 100
+  totalMemberShare8 = Math.round(totalMemberShare8 * 100) / 100
+  totalEmployerShare12 = Math.round(totalEmployerShare12 * 100) / 100
+  const totalRemittance20 = Math.round((totalMemberShare8 + totalEmployerShare12) * 100) / 100
+  const memberCount = members.length
+
+  // Generate Electronic C-Form (Central Bank standard format with H, D, T records)
+  const employerReg = 'E/10948'
+  const employerName = 'Demo Company (Pvt) Ltd'
+  const employerAddress = 'Level 14, West Tower, World Trade Center, Colombo 01'
+  const formattedMonth = contributionMonth.replace('-', '')
+
+  const cFormLines: string[] = [
+    `H,${employerReg.replace('/', '')},${employerName.toUpperCase()},${formattedMonth},${totalRemittance20.toFixed(2)},${memberCount}`,
+  ]
+
+  for (const m of members) {
+    const cleanMemberNo = m.memberNo.replace(/[^A-Za-z0-9]/g, '')
+    cFormLines.push(
+      `D,${cleanMemberNo},${m.nic},"${m.initialsAndSurname}",${m.contributoryEarnings.toFixed(2)},${m.memberShare8.toFixed(2)},${m.employerShare12.toFixed(2)},${m.totalContribution20.toFixed(2)},${m.status}`,
+    )
+  }
+
+  cFormLines.push(`T,${memberCount},${totalContributoryEarnings.toFixed(2)},${totalRemittance20.toFixed(2)}`)
+  const electronicContent = cFormLines.join('\n')
+
+  return {
+    status: 200,
+    body: {
+      employerRegistrationNo: employerReg,
+      employerName,
+      employerAddress,
+      contributionMonth,
+      paymentDueDate: `${contributionMonth}-29`,
+      remittanceRef: `EPF-TXN-${formattedMonth}-8842`,
+      chequeOrTransferDate: `${contributionMonth}-25`,
+      currency: 'LKR',
+      totalContributoryEarnings,
+      totalMemberShare8,
+      totalEmployerShare12,
+      totalRemittance20,
+      memberCount,
+      members,
+      electronicFile: {
+        filename: `CFORM_${formattedMonth}_${employerReg.replace('/', '')}.csv`,
+        content: electronicContent,
+        mimeType: 'text/csv',
+      },
+    },
+  }
+}
+
+function getEtfRemittanceSchedule(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
+  const runId = pathParam(request, 'id')
+  const run = world.payrollRuns.get(runId)
+  if (!run) throw notFound('Payroll run not found')
+
+  const period = world.payPeriods.get(run.payPeriodId)
+  const contributionMonth = period?.code ? period.code.replace('period-', '') : '2026-03'
+  const results = world.payrollResultsByRun.get(runId) ?? []
+
+  let totalContributoryEarnings = 0
+  let totalEmployerContribution3 = 0
+
+  const members = results.map((r, idx) => {
+    const emp = world.employees.get(r.employeeId)
+    const memberNo = (emp?.customFields?.epfNumber as string) || `A/${12000 + idx}`
+    const nic = getEmployeeNic(emp, idx)
+    const contributoryEarnings =
+      r.totalStatutoryEmployee > 0
+        ? Math.round((r.totalStatutoryEmployee / 0.08) * 100) / 100
+        : r.basicSalary
+    const employerContribution3 = Math.round(contributoryEarnings * 0.03 * 100) / 100
+
+    totalContributoryEarnings += contributoryEarnings
+    totalEmployerContribution3 += employerContribution3
+
+    return {
+      memberNo,
+      nic,
+      fullName: r.employeeName,
+      department: r.department,
+      contributoryEarnings,
+      employerContribution3,
+    }
+  })
+
+  totalContributoryEarnings = Math.round(totalContributoryEarnings * 100) / 100
+  totalEmployerContribution3 = Math.round(totalEmployerContribution3 * 100) / 100
+  const employerReg = 'ETF/88492'
+  const employerName = 'Demo Company (Pvt) Ltd'
+  const formattedMonth = contributionMonth.replace('-', '')
+
+  const csvLines: string[] = [
+    '# EMPLOYEES TRUST FUND BOARD SRI LANKA - MONTHLY REMITTANCE SCHEDULE',
+    `# EMPLOYER_REG_NO: ${employerReg}`,
+    `# EMPLOYER_NAME: ${employerName}`,
+    `# REMITTANCE_MONTH: ${contributionMonth}`,
+    `# TOTAL_MEMBERS: ${members.length}`,
+    `# TOTAL_CONTRIBUTION_3PCT: ${totalEmployerContribution3.toFixed(2)}`,
+    'MemberNo,NIC,EmployeeName,Department,ContributoryEarnings,ETF_Employer_3pct',
+  ]
+
+  for (const m of members) {
+    const quotedName = m.fullName.includes(',') ? `"${m.fullName}"` : m.fullName
+    csvLines.push(
+      `${m.memberNo},${m.nic},${quotedName},${m.department},${m.contributoryEarnings.toFixed(2)},${m.employerContribution3.toFixed(2)}`,
+    )
+  }
+
+  return {
+    status: 200,
+    body: {
+      employerRegistrationNo: employerReg,
+      employerName,
+      contributionMonth,
+      currency: 'LKR',
+      totalContributoryEarnings,
+      totalEmployerContribution3,
+      memberCount: members.length,
+      members,
+      electronicFile: {
+        filename: `ETF_SCHEDULE_${formattedMonth}_${employerReg.replace('/', '')}.csv`,
+        content: csvLines.join('\n'),
+        mimeType: 'text/csv',
+      },
+    },
+  }
+}
+
+function getEmployeeT10Certificate(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
+  const runId = pathParam(request, 'id')
+  const employeeId = pathParam(request, 'employeeId')
+  const assessmentYear = request.query.get('year') || '2025/2026'
+
+  const run = world.payrollRuns.get(runId)
+  if (!run) throw notFound('Payroll run not found')
+
+  const results = world.payrollResultsByRun.get(runId) ?? []
+  const result = results.find(
+    (r) => r.employeeId === employeeId || r.employeeCode === employeeId || r.id === employeeId,
+  )
+  if (!result) throw notFound('Employee payroll result not found')
+
+  const employeeIndex = Array.from(world.employees.values()).findIndex((e) => e.id === result.employeeId)
+  const emp = world.employees.get(result.employeeId)
+  const idx = employeeIndex >= 0 ? employeeIndex : 0
+
+  const epfNo = (emp?.customFields?.epfNumber as string) || `A/${12000 + idx}`
+  const nic = getEmployeeNic(emp, idx)
+  const employeeTin = getEmployeeTin(idx)
+
+  // Build 12 months for Sri Lankan assessment year (April 2025 to March 2026)
+  const months = [
+    { name: 'April 2025', code: '2025-04', remDate: '2025-05-14' },
+    { name: 'May 2025', code: '2025-05', remDate: '2025-06-13' },
+    { name: 'June 2025', code: '2025-06', remDate: '2025-07-14' },
+    { name: 'July 2025', code: '2025-07', remDate: '2025-08-14' },
+    { name: 'August 2025', code: '2025-08', remDate: '2025-09-12' },
+    { name: 'September 2025', code: '2025-09', remDate: '2025-10-14' },
+    { name: 'October 2025', code: '2025-10', remDate: '2025-11-14' },
+    { name: 'November 2025', code: '2025-11', remDate: '2025-12-12' },
+    { name: 'December 2025', code: '2025-12', remDate: '2026-01-14' },
+    { name: 'January 2026', code: '2026-01', remDate: '2026-02-13' },
+    { name: 'February 2026', code: '2026-02', remDate: '2026-03-13' },
+    { name: 'March 2026', code: '2026-03', remDate: '2026-04-14' },
+  ]
+
+  let annualGrossRemuneration = 0
+  let annualNonCashBenefits = 0
+  let annualAssessableRemuneration = 0
+  let annualApitTaxDeducted = 0
+
+  const monthlySchedule = months.map((m, mIdx) => {
+    const isCurrentMonth = m.code === '2026-03'
+    const gross = isCurrentMonth ? result.grossPay : Math.round(result.basicSalary * 1.15)
+    const nonCash = mIdx % 3 === 0 ? 5000 : 0
+    const assessable = gross + nonCash
+    const tax = isCurrentMonth ? result.taxWithheld : Math.round(result.taxWithheld * 0.95 * 100) / 100
+
+    annualGrossRemuneration += gross
+    annualNonCashBenefits += nonCash
+    annualAssessableRemuneration += assessable
+    annualApitTaxDeducted += tax
+
+    return {
+      monthName: m.name,
+      periodCode: m.code,
+      grossRemuneration: gross,
+      nonCashBenefits: nonCash,
+      totalAssessableRemuneration: assessable,
+      apitTaxDeducted: tax,
+      remittanceDate: m.remDate,
+      remittanceRef: `IRD-APIT-${m.code.replace('-', '')}-${String(idx + 1).padStart(3, '0')}`,
+    }
+  })
+
+  annualGrossRemuneration = Math.round(annualGrossRemuneration * 100) / 100
+  annualNonCashBenefits = Math.round(annualNonCashBenefits * 100) / 100
+  annualAssessableRemuneration = Math.round(annualAssessableRemuneration * 100) / 100
+  annualApitTaxDeducted = Math.round(annualApitTaxDeducted * 100) / 100
+  const statutoryReliefThreshold = 1200000.0 // LKR 1.2M standard personal relief threshold under Inland Revenue Act
+  const taxableRemuneration = Math.max(0, annualAssessableRemuneration - statutoryReliefThreshold)
+  const annualNetPaid = Math.round((annualGrossRemuneration - annualApitTaxDeducted) * 100) / 100
+
+  const digitalSealPayload = `${result.employeeCode}|${nic}|${annualAssessableRemuneration}|${annualApitTaxDeducted}|${assessmentYear}`
+  const digitalSealHash = createHash('sha256').update(digitalSealPayload).digest('hex')
+
+  return {
+    status: 200,
+    body: {
+      employer: {
+        name: 'Demo Company (Pvt) Ltd',
+        tin: '102938475',
+        address: 'Level 14, West Tower, World Trade Center, Echelon Square, Colombo 01',
+        employerEpfNo: 'E/10948',
+      },
+      employee: {
+        id: result.employeeId,
+        code: result.employeeCode,
+        fullName: result.employeeName,
+        nic,
+        tin: employeeTin,
+        designation: result.designation,
+        department: result.department,
+        epfNo,
+      },
+      assessmentYear,
+      periodCovered: '01st April 2025 to 31st March 2026',
+      monthlySchedule,
+      totals: {
+        annualGrossRemuneration,
+        annualNonCashBenefits,
+        annualAssessableRemuneration,
+        statutoryReliefThreshold,
+        taxableRemuneration,
+        annualApitTaxDeducted,
+        annualNetPaid,
+      },
+      declaration: {
+        statement:
+          'I certify that the particulars furnished in this certificate are true, correct, and complete in terms of Section 83 of the Inland Revenue Act No. 24 of 2017, and the tax deducted has been duly remitted to the Commissioner General of Inland Revenue.',
+        signatoryName: 'Anusha Sivakumar',
+        signatoryTitle: 'Head of Finance & Compliance',
+        issuedDate: '2026-03-25',
+        digitalSealHash,
+      },
     },
   }
 }

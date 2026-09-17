@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { QueryErrorState } from '@/components/QueryErrorState'
 import {
   Badge,
@@ -15,10 +15,13 @@ import {
   payrollApi,
   type BankAdvicePayload,
   type BankAdviceResponse,
+  type EpfCFormResponse,
+  type EtfScheduleResponse,
   type PayGroup,
   type PayPeriod,
   type PayrollResult,
   type PayrollResultLine,
+  type T10CertificateData,
 } from '@/lib/api'
 
 export function Payroll() {
@@ -180,6 +183,70 @@ export function Payroll() {
     URL.revokeObjectURL(url)
   }
 
+  // -------------------------------------------------------------------------
+  // Statutory Returns (EPF Form C, ETF, T-10 Tax Certificate) State
+  // -------------------------------------------------------------------------
+  const [isStatutoryModalOpen, setIsStatutoryModalOpen] = useState(false)
+  const [activeStatutoryTab, setActiveStatutoryTab] = useState<'EPF' | 'ETF' | 'T10'>('EPF')
+  const [selectedT10EmployeeId, setSelectedT10EmployeeId] = useState<string>('')
+  const [epfMemberFilter, setEpfMemberFilter] = useState('')
+  const [etfMemberFilter, setEtfMemberFilter] = useState('')
+
+  const epfCFormQuery = useQuery({
+    queryKey: ['payroll', 'epf-cform', activeRun?.id],
+    queryFn: () => payrollApi.getEpfCForm(activeRun!.id),
+    enabled: Boolean(activeRun?.id && isStatutoryModalOpen && activeStatutoryTab === 'EPF'),
+  })
+
+  const etfScheduleQuery = useQuery({
+    queryKey: ['payroll', 'etf-schedule', activeRun?.id],
+    queryFn: () => payrollApi.getEtfSchedule(activeRun!.id),
+    enabled: Boolean(activeRun?.id && isStatutoryModalOpen && activeStatutoryTab === 'ETF'),
+  })
+
+  const t10CertificateQuery = useQuery({
+    queryKey: ['payroll', 't10-certificate', activeRun?.id, selectedT10EmployeeId],
+    queryFn: () => payrollApi.getT10Certificate(activeRun!.id, selectedT10EmployeeId),
+    enabled: Boolean(
+      activeRun?.id && isStatutoryModalOpen && activeStatutoryTab === 'T10' && selectedT10EmployeeId,
+    ),
+  })
+
+  useEffect(() => {
+    const firstEmp = resultsQuery.data?.results[0]
+    if (!selectedT10EmployeeId && firstEmp) {
+      setSelectedT10EmployeeId(firstEmp.employeeId)
+    }
+  }, [resultsQuery.data, selectedT10EmployeeId])
+
+  const handleDownloadEpfCForm = () => {
+    if (!epfCFormQuery.data?.electronicFile) return
+    const file = epfCFormQuery.data.electronicFile
+    const blob = new Blob([file.content], { type: file.mimeType })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file.filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleDownloadEtfSchedule = () => {
+    if (!etfScheduleQuery.data?.electronicFile) return
+    const file = etfScheduleQuery.data.electronicFile
+    const blob = new Blob([file.content], { type: file.mimeType })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file.filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   if (payGroupsQuery.isPending || payPeriodsQuery.isPending) {
     return <LoadingState label="Loading payroll cohorts and pay periods…" />
   }
@@ -263,6 +330,15 @@ export function Payroll() {
 
             <Button variant="secondary" onClick={handleOpenBankAdviceModal}>
               Download Bank Advice
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsStatutoryModalOpen(true)
+                setActiveStatutoryTab('EPF')
+              }}
+            >
+              Statutory Returns (EPF / ETF / T-10)
             </Button>
           </div>
         )}
@@ -1226,6 +1302,878 @@ export function Payroll() {
           <p style={{ margin: 0, color: 'var(--color-on-surface-muted)' }}>
             ⚠️ <strong>Irreversible Action</strong>: Committing this payroll run permanently locks the salary register, triggers GL journal sync, and makes digital payslips visible in the Employee Mobile & Self-Service portals.
           </p>
+        </div>
+      </Modal>
+
+      {/* ===================================================================== */}
+      {/* Modal: Statutory Compliance & Tax Returns Engine                      */}
+      {/* ===================================================================== */}
+      <Modal
+        isOpen={isStatutoryModalOpen}
+        onClose={() => setIsStatutoryModalOpen(false)}
+        title="Statutory Returns & Tax Certification Engine"
+        size="large"
+        actions={
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              width: '100%',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ fontSize: '0.8125rem', color: 'var(--color-on-surface-muted)' }}>
+              {activeStatutoryTab === 'EPF' && (
+                <span>Central Bank of Sri Lanka · Form C Electronic Remittance Schedule</span>
+              )}
+              {activeStatutoryTab === 'ETF' && (
+                <span>Employees' Trust Fund Board · Monthly 3% Remittance Schedule</span>
+              )}
+              {activeStatutoryTab === 'T10' && (
+                <span>Department of Inland Revenue · Section 83 APIT Certificate</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              {activeStatutoryTab === 'EPF' && (
+                <Button
+                  variant="primary"
+                  onClick={handleDownloadEpfCForm}
+                  disabled={!epfCFormQuery.data}
+                >
+                  📥 Download Electronic C-Form (CSV)
+                </Button>
+              )}
+              {activeStatutoryTab === 'ETF' && (
+                <Button
+                  variant="primary"
+                  onClick={handleDownloadEtfSchedule}
+                  disabled={!etfScheduleQuery.data}
+                >
+                  📥 Download ETF Schedule (CSV)
+                </Button>
+              )}
+              {activeStatutoryTab === 'T10' && (
+                <Button
+                  variant="primary"
+                  onClick={() => window.print()}
+                  disabled={!t10CertificateQuery.data}
+                >
+                  🖨️ Print / Save Certificate
+                </Button>
+              )}
+              <Button variant="ghost" onClick={() => setIsStatutoryModalOpen(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Tab Navigation Pill Bar */}
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.5rem',
+              borderBottom: '1px solid var(--color-outline)',
+              paddingBottom: '0.75rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              className={`btn ${activeStatutoryTab === 'EPF' ? 'btn--primary' : 'btn--ghost'}`}
+              style={{ fontSize: '0.875rem' }}
+              onClick={() => setActiveStatutoryTab('EPF')}
+            >
+              🏛️ Monthly EPF Form C
+            </button>
+            <button
+              type="button"
+              className={`btn ${activeStatutoryTab === 'ETF' ? 'btn--primary' : 'btn--ghost'}`}
+              style={{ fontSize: '0.875rem' }}
+              onClick={() => setActiveStatutoryTab('ETF')}
+            >
+              🏦 Monthly ETF Schedule
+            </button>
+            <button
+              type="button"
+              className={`btn ${activeStatutoryTab === 'T10' ? 'btn--primary' : 'btn--ghost'}`}
+              style={{ fontSize: '0.875rem' }}
+              onClick={() => setActiveStatutoryTab('T10')}
+            >
+              📜 Annual Tax Certificate (Form T-10)
+            </button>
+          </div>
+
+          {/* ----------------------------------------------------------------- */}
+          {/* TAB 1: EPF Form C                                                 */}
+          {/* ----------------------------------------------------------------- */}
+          {activeStatutoryTab === 'EPF' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {epfCFormQuery.isPending && (
+                <LoadingState label="Compiling Central Bank EPF Form C schedule..." />
+              )}
+              {epfCFormQuery.isError && (
+                <QueryErrorState
+                  error={epfCFormQuery.error}
+                  onRetry={() => void epfCFormQuery.refetch()}
+                />
+              )}
+              {epfCFormQuery.data && (
+                <>
+                  {/* Employer Header Strip */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0.75rem',
+                      background: 'var(--color-surface-container)',
+                      padding: '0.875rem 1rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--color-outline)',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9375rem' }}>
+                        {epfCFormQuery.data.employerName}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-on-surface-muted)' }}>
+                        {epfCFormQuery.data.employerAddress}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8125rem' }}>
+                      <div>
+                        <span style={{ color: 'var(--color-on-surface-muted)' }}>EPF Reg No: </span>
+                        <strong>{epfCFormQuery.data.employerRegistrationNo}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--color-on-surface-muted)' }}>Month: </span>
+                        <strong>{epfCFormQuery.data.contributionMonth}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--color-on-surface-muted)' }}>Due Date: </span>
+                        <strong>{epfCFormQuery.data.paymentDueDate}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--color-on-surface-muted)' }}>Ref: </span>
+                        <code>{epfCFormQuery.data.remittanceRef}</code>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary KPI Grid */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-outline)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Contributory Gross Base
+                      </span>
+                      <div style={{ fontSize: '1.0625rem', fontWeight: 700, marginTop: '2px' }}>
+                        LKR {epfCFormQuery.data.totalContributoryEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-outline)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Member Contribution (8%)
+                      </span>
+                      <div style={{ fontSize: '1.0625rem', fontWeight: 700, marginTop: '2px' }}>
+                        LKR {epfCFormQuery.data.totalMemberShare8.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-outline)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Employer Contribution (12%)
+                      </span>
+                      <div style={{ fontSize: '1.0625rem', fontWeight: 700, marginTop: '2px' }}>
+                        LKR {epfCFormQuery.data.totalEmployerShare12.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'rgba(22, 163, 74, 0.08)',
+                        border: '1px solid rgba(22, 163, 74, 0.3)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: '#16a34a', fontWeight: 600 }}>
+                        Total EPF Remittance (20%)
+                      </span>
+                      <div style={{ fontSize: '1.0625rem', fontWeight: 700, marginTop: '2px', color: '#16a34a' }}>
+                        LKR {epfCFormQuery.data.totalRemittance20.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-outline)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Contributing Members
+                      </span>
+                      <div style={{ fontSize: '1.0625rem', fontWeight: 700, marginTop: '2px' }}>
+                        {epfCFormQuery.data.memberCount} Members
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Filter & Member Schedule Table */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                    <input
+                      type="search"
+                      className="field__input"
+                      style={{ minHeight: '34px', width: '280px', fontSize: '0.8125rem' }}
+                      placeholder="Filter member by name, NIC, or EPF #..."
+                      value={epfMemberFilter}
+                      onChange={(e) => setEpfMemberFilter(e.target.value)}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-on-surface-muted)' }}>
+                      Form C electronic records ready for Central Bank gateway upload
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      maxHeight: '380px',
+                      overflowY: 'auto',
+                      border: '1px solid var(--color-outline)',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    <table className="table" style={{ fontSize: '0.8125rem', width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th scope="col">EPF Member #</th>
+                          <th scope="col">NIC / National ID</th>
+                          <th scope="col">Member Name</th>
+                          <th scope="col">Dept</th>
+                          <th scope="col" className="numeric">Contributory Base</th>
+                          <th scope="col" className="numeric">Member 8%</th>
+                          <th scope="col" className="numeric">Employer 12%</th>
+                          <th scope="col" className="numeric">Total 20%</th>
+                          <th scope="col">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {epfCFormQuery.data.members
+                          .filter(
+                            (m) =>
+                              !epfMemberFilter ||
+                              m.fullName.toLowerCase().includes(epfMemberFilter.toLowerCase()) ||
+                              m.nic.toLowerCase().includes(epfMemberFilter.toLowerCase()) ||
+                              m.memberNo.toLowerCase().includes(epfMemberFilter.toLowerCase()),
+                          )
+                          .map((m) => (
+                            <tr key={m.memberNo}>
+                              <td>
+                                <code>{m.memberNo}</code>
+                              </td>
+                              <td>{m.nic}</td>
+                              <td>
+                                <strong>{m.initialsAndSurname}</strong>
+                              </td>
+                              <td>{m.department}</td>
+                              <td className="numeric">
+                                LKR {m.contributoryEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="numeric">
+                                LKR {m.memberShare8.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="numeric">
+                                LKR {m.employerShare12.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="numeric" style={{ fontWeight: 700, color: '#16a34a' }}>
+                                LKR {m.totalContribution20.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td>
+                                <Badge
+                                  tone={
+                                    m.status === 'ACTIVE'
+                                      ? 'success'
+                                      : m.status === 'NEW'
+                                        ? 'warning'
+                                        : 'neutral'
+                                  }
+                                >
+                                  {m.status}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ----------------------------------------------------------------- */}
+          {/* TAB 2: ETF Schedule                                               */}
+          {/* ----------------------------------------------------------------- */}
+          {activeStatutoryTab === 'ETF' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {etfScheduleQuery.isPending && (
+                <LoadingState label="Compiling ETF 3% remittance schedule..." />
+              )}
+              {etfScheduleQuery.isError && (
+                <QueryErrorState
+                  error={etfScheduleQuery.error}
+                  onRetry={() => void etfScheduleQuery.refetch()}
+                />
+              )}
+              {etfScheduleQuery.data && (
+                <>
+                  {/* Employer Header Strip */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0.75rem',
+                      background: 'var(--color-surface-container)',
+                      padding: '0.875rem 1rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--color-outline)',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9375rem' }}>
+                        {etfScheduleQuery.data.employerName}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-on-surface-muted)' }}>
+                        Employees' Trust Fund Board (ETFB) of Sri Lanka
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8125rem' }}>
+                      <div>
+                        <span style={{ color: 'var(--color-on-surface-muted)' }}>ETF Reg No: </span>
+                        <strong>{etfScheduleQuery.data.employerRegistrationNo}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--color-on-surface-muted)' }}>Month: </span>
+                        <strong>{etfScheduleQuery.data.contributionMonth}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--color-on-surface-muted)' }}>Statutory Rate: </span>
+                        <strong>3.00% (Employer Paid)</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary KPI Grid */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-outline)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Contributory Earnings Base
+                      </span>
+                      <div style={{ fontSize: '1.125rem', fontWeight: 700, marginTop: '2px' }}>
+                        LKR {etfScheduleQuery.data.totalContributoryEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'rgba(37, 99, 235, 0.08)',
+                        border: '1px solid rgba(37, 99, 235, 0.3)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: '#2563eb', fontWeight: 600 }}>
+                        Total Employer ETF Remittance (3%)
+                      </span>
+                      <div style={{ fontSize: '1.125rem', fontWeight: 700, marginTop: '2px', color: '#2563eb' }}>
+                        LKR {etfScheduleQuery.data.totalEmployerContribution3.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-outline)',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Enrolled Members
+                      </span>
+                      <div style={{ fontSize: '1.125rem', fontWeight: 700, marginTop: '2px' }}>
+                        {etfScheduleQuery.data.memberCount} Members
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Filter & Member Schedule Table */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                    <input
+                      type="search"
+                      className="field__input"
+                      style={{ minHeight: '34px', width: '280px', fontSize: '0.8125rem' }}
+                      placeholder="Filter ETF schedule by name, NIC, or EPF #..."
+                      value={etfMemberFilter}
+                      onChange={(e) => setEtfMemberFilter(e.target.value)}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-on-surface-muted)' }}>
+                      Form II Remittance format compliant with ETFB e-Services
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      maxHeight: '380px',
+                      overflowY: 'auto',
+                      border: '1px solid var(--color-outline)',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    <table className="table" style={{ fontSize: '0.8125rem', width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th scope="col">Member No</th>
+                          <th scope="col">NIC / National ID</th>
+                          <th scope="col">Employee Name</th>
+                          <th scope="col">Department</th>
+                          <th scope="col" className="numeric">Contributory Base</th>
+                          <th scope="col" className="numeric">ETF 3% Contribution</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {etfScheduleQuery.data.members
+                          .filter(
+                            (m) =>
+                              !etfMemberFilter ||
+                              m.fullName.toLowerCase().includes(etfMemberFilter.toLowerCase()) ||
+                              m.nic.toLowerCase().includes(etfMemberFilter.toLowerCase()) ||
+                              m.memberNo.toLowerCase().includes(etfMemberFilter.toLowerCase()),
+                          )
+                          .map((m) => (
+                            <tr key={m.memberNo}>
+                              <td>
+                                <code>{m.memberNo}</code>
+                              </td>
+                              <td>{m.nic}</td>
+                              <td>
+                                <strong>{m.fullName}</strong>
+                              </td>
+                              <td>{m.department}</td>
+                              <td className="numeric">
+                                LKR {m.contributoryEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="numeric" style={{ fontWeight: 700, color: '#2563eb' }}>
+                                LKR {m.employerContribution3.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ----------------------------------------------------------------- */}
+          {/* TAB 3: Annual Tax Deduction Certificate (Form T-10 / APIT)         */}
+          {/* ----------------------------------------------------------------- */}
+          {activeStatutoryTab === 'T10' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Employee & Assessment Year Selection Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                  background: 'var(--color-surface-container)',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <label htmlFor="t10-employee-select" style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                    Select Employee:
+                  </label>
+                  <select
+                    id="t10-employee-select"
+                    className="field__input"
+                    style={{ minHeight: '34px', minWidth: '260px', padding: '0 0.5rem' }}
+                    value={selectedT10EmployeeId}
+                    onChange={(e) => setSelectedT10EmployeeId(e.target.value)}
+                  >
+                    {resultsQuery.data?.results.map((r: PayrollResult) => (
+                      <option key={r.employeeId} value={r.employeeId}>
+                        {r.employeeCode} - {r.employeeName} ({r.designation})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Badge tone="neutral">Year of Assessment: 2025/2026</Badge>
+                  <Badge tone="success">Inland Revenue Act No. 24 of 2017</Badge>
+                </div>
+              </div>
+
+              {t10CertificateQuery.isPending && (
+                <LoadingState label="Preparing Form T-10 Tax Deduction Certificate..." />
+              )}
+              {t10CertificateQuery.isError && (
+                <QueryErrorState
+                  error={t10CertificateQuery.error}
+                  onRetry={() => void t10CertificateQuery.refetch()}
+                />
+              )}
+              {t10CertificateQuery.data && (
+                <div
+                  className="t10-certificate-sheet"
+                  style={{
+                    background: 'var(--color-surface)',
+                    border: '2px solid var(--color-outline)',
+                    borderRadius: '8px',
+                    padding: '1.5rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1.25rem',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                  }}
+                >
+                  {/* Official Government / IRD Header */}
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      borderBottom: '2px solid var(--color-outline)',
+                      paddingBottom: '1rem',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '0.75rem',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: 'var(--color-on-surface-muted)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Democratic Socialist Republic of Sri Lanka
+                    </div>
+                    <div style={{ fontSize: '1.125rem', fontWeight: 800, marginTop: '2px', letterSpacing: '0.04em' }}>
+                      DEPARTMENT OF INLAND REVENUE
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '1rem',
+                        fontWeight: 700,
+                        marginTop: '4px',
+                        color: 'var(--color-primary, #2563eb)',
+                      }}
+                    >
+                      FORM T-10
+                    </div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '2px' }}>
+                      CERTIFICATE OF ADVANCE PERSONAL INCOME TAX (APIT) DEDUCTIONS
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--color-on-surface-muted)', marginTop: '2px' }}>
+                      Issued under Section 83 of the Inland Revenue Act, No. 24 of 2017
+                    </div>
+                    <div style={{ fontSize: '0.8125rem', fontWeight: 600, marginTop: '4px' }}>
+                      Year of Assessment: <strong>{t10CertificateQuery.data.assessmentYear}</strong> ({t10CertificateQuery.data.periodCovered})
+                    </div>
+                  </div>
+
+                  {/* Employer & Employee Details Grid */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                      gap: '1rem',
+                      background: 'var(--color-surface-container)',
+                      padding: '1rem',
+                      borderRadius: '6px',
+                      fontSize: '0.8125rem',
+                    }}
+                  >
+                    {/* Left: Employer */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          textTransform: 'uppercase',
+                          color: 'var(--color-on-surface-muted)',
+                          borderBottom: '1px solid var(--color-outline)',
+                          paddingBottom: '0.25rem',
+                        }}
+                      >
+                        1. Employer Particulars
+                      </div>
+                      <div>
+                        <strong>Name: </strong>
+                        {t10CertificateQuery.data.employer.name}
+                      </div>
+                      <div>
+                        <strong>Address: </strong>
+                        {t10CertificateQuery.data.employer.address}
+                      </div>
+                      <div>
+                        <strong>Employer TIN: </strong>
+                        <code>{t10CertificateQuery.data.employer.tin}</code>
+                      </div>
+                      <div>
+                        <strong>EPF Registration No: </strong>
+                        <code>{t10CertificateQuery.data.employer.employerEpfNo}</code>
+                      </div>
+                    </div>
+
+                    {/* Right: Employee */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          textTransform: 'uppercase',
+                          color: 'var(--color-on-surface-muted)',
+                          borderBottom: '1px solid var(--color-outline)',
+                          paddingBottom: '0.25rem',
+                        }}
+                      >
+                        2. Employee Particulars
+                      </div>
+                      <div>
+                        <strong>Full Name: </strong>
+                        {t10CertificateQuery.data.employee.fullName}
+                      </div>
+                      <div>
+                        <strong>Employee Code / Designation: </strong>
+                        {t10CertificateQuery.data.employee.code} — {t10CertificateQuery.data.employee.designation} ({t10CertificateQuery.data.employee.department})
+                      </div>
+                      <div>
+                        <strong>National Identity Card (NIC): </strong>
+                        <code>{t10CertificateQuery.data.employee.nic}</code>
+                      </div>
+                      <div>
+                        <strong>Employee Taxpayer ID (TIN): </strong>
+                        <code>{t10CertificateQuery.data.employee.tin}</code>
+                      </div>
+                      <div>
+                        <strong>Member EPF No: </strong>
+                        <code>{t10CertificateQuery.data.employee.epfNo}</code>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 12-Month Schedule Table */}
+                  <div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-on-surface-muted)', marginBottom: '0.5rem' }}>
+                      3. Monthly Remuneration and APIT Deductions Schedule
+                    </div>
+                    <div style={{ border: '1px solid var(--color-outline)', borderRadius: '6px', overflow: 'hidden' }}>
+                      <table className="table" style={{ fontSize: '0.75rem', width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th scope="col">Calendar Month</th>
+                            <th scope="col" className="numeric">Gross Cash (LKR)</th>
+                            <th scope="col" className="numeric">Non-Cash Benefits (LKR)</th>
+                            <th scope="col" className="numeric">Assessable Pay (LKR)</th>
+                            <th scope="col" className="numeric">APIT Tax Deducted (LKR)</th>
+                            <th scope="col">Remittance Date</th>
+                            <th scope="col">IRD Reference</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {t10CertificateQuery.data.monthlySchedule.map((row) => (
+                            <tr key={row.periodCode}>
+                              <td>
+                                <strong>{row.monthName}</strong>
+                              </td>
+                              <td className="numeric">
+                                {row.grossRemuneration.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="numeric">
+                                {row.nonCashBenefits.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="numeric">
+                                {row.totalAssessableRemuneration.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="numeric" style={{ fontWeight: 700, color: row.apitTaxDeducted > 0 ? '#b91c1c' : undefined }}>
+                                {row.apitTaxDeducted.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td>{row.remittanceDate}</td>
+                              <td>
+                                <code>{row.remittanceRef}</code>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ fontWeight: 700, background: 'var(--color-surface-container)' }}>
+                            <td>Total / Cumulative</td>
+                            <td className="numeric">
+                              LKR {t10CertificateQuery.data.totals.annualGrossRemuneration.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="numeric">
+                              LKR {t10CertificateQuery.data.totals.annualNonCashBenefits.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="numeric">
+                              LKR {t10CertificateQuery.data.totals.annualAssessableRemuneration.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="numeric" style={{ color: '#b91c1c' }}>
+                              LKR {t10CertificateQuery.data.totals.annualApitTaxDeducted.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </td>
+                            <td colSpan={2}>12 Monthly Remittances Completed</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Statutory Tax Reconciliation Box */}
+                  <div
+                    style={{
+                      background: 'var(--color-surface-container)',
+                      padding: '1rem',
+                      borderRadius: '6px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: '0.75rem',
+                      fontSize: '0.8125rem',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Cumulative Assessable Remuneration
+                      </span>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: '2px' }}>
+                        LKR {t10CertificateQuery.data.totals.annualAssessableRemuneration.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Statutory Personal Relief (Exemption)
+                      </span>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: '2px', color: '#16a34a' }}>
+                        - LKR {t10CertificateQuery.data.totals.statutoryReliefThreshold.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Net Taxable Remuneration
+                      </span>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: '2px' }}>
+                        LKR {t10CertificateQuery.data.totals.taxableRemuneration.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Total APIT Deducted & Remitted
+                      </span>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: '2px', color: '#b91c1c' }}>
+                        LKR {t10CertificateQuery.data.totals.annualApitTaxDeducted.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--color-on-surface-muted)' }}>
+                        Net Remuneration Disbursed
+                      </span>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: '2px' }}>
+                        LKR {t10CertificateQuery.data.totals.annualNetPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Official Certification Declaration & Signatory Box */}
+                  <div
+                    style={{
+                      borderTop: '1px solid var(--color-outline)',
+                      paddingTop: '0.875rem',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-end',
+                      flexWrap: 'wrap',
+                      gap: '1rem',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    <div style={{ maxWidth: '440px', color: 'var(--color-on-surface-muted)' }}>
+                      <strong>Declaration: </strong>
+                      {t10CertificateQuery.data.declaration.statement}
+                      <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>Digital Verification Seal: </span>
+                        <code style={{ fontSize: '0.6875rem' }}>
+                          {t10CertificateQuery.data.declaration.digitalSealHash.slice(0, 24)}…
+                        </code>
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: 'right' }}>
+                      <div
+                        style={{
+                          borderBottom: '1px dashed var(--color-outline)',
+                          width: '180px',
+                          marginBottom: '4px',
+                          paddingBottom: '2px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {t10CertificateQuery.data.declaration.signatoryName}
+                      </div>
+                      <div style={{ fontWeight: 600 }}>{t10CertificateQuery.data.declaration.signatoryTitle}</div>
+                      <div style={{ color: 'var(--color-on-surface-muted)' }}>
+                        Date of Issue: {t10CertificateQuery.data.declaration.issuedDate}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </div>
