@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { QueryErrorState } from '@/components/QueryErrorState'
 import {
   Badge,
@@ -348,6 +349,11 @@ export function Attendance() {
             <Button variant="primary" onClick={() => setIsPunchModalOpen(true)}>
               + Ingest Clock Event
             </Button>
+            <Link to="/kiosk" style={{ textDecoration: 'none' }}>
+              <Button variant="secondary">
+                📟 Open Tablet Kiosk Mode
+              </Button>
+            </Link>
           </div>
         </div>
 

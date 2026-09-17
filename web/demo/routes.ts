@@ -1961,6 +1961,9 @@ export function buildRouter(world: World): Router {
     .on('GET', '/v1/attendance/daily/:id', (request) => getDailyAttendanceDetails(world, request))
     .on('POST', '/v1/attendance/recompute', (request) => recomputeAttendance(world, request))
     .on('GET', '/v1/attendance/payroll-variable-summary', (request) => getPayrollVariableSummary(world, request))
+    .on('GET', '/v1/attendance/kiosk/status/:employeeCode', (request) => getKioskEmployeeStatus(world, request))
+    .on('POST', '/v1/attendance/kiosk/punch', (request) => submitKioskPunch(world, request))
+    .on('GET', '/v1/attendance/kiosk/recent-punches', (request) => listKioskRecentPunches(world, request))
 
     // Recruitment & ATS (V21)
     .on('GET', '/v1/recruitment/vacancies', (request) => listVacancies(world, request))
@@ -2827,6 +2830,167 @@ function ingestPunch(world: World, request: DemoRequest): DemoReply {
 
   world.rawPunches.unshift(newPunch)
   return { status: 201, body: newPunch }
+}
+
+function getKioskEmployeeStatus(world: World, request: DemoRequest): DemoReply {
+  const employeeCode = pathParam(request, 'employeeCode').trim().toUpperCase()
+  const emp = Array.from(world.employees.values()).find(
+    (e) => (e.employeeCode ?? '').toUpperCase() === employeeCode || e.id === employeeCode,
+  )
+  if (!emp) throw notFound(`Employee with code "${employeeCode}" not found`)
+
+  const today = '2026-03-09'
+  const schedules = world.shiftSchedules.get(emp.id) ?? []
+  const todaySched = schedules.find((s) => s.workDate === today) || schedules[0]
+
+  const shift = todaySched
+    ? {
+        id: todaySched.shiftId ?? 'shift-gen',
+        code: todaySched.shiftCode ?? 'GEN_0830',
+        name: todaySched.shiftName ?? 'General Day (08:30 - 17:30)',
+        startTime: todaySched.startTime ?? '08:30',
+        endTime: todaySched.endTime ?? '17:30',
+        color: todaySched.shiftColor ?? '#2563eb',
+        isRestDay: todaySched.isRestDay,
+        isHoliday: todaySched.isHoliday,
+      }
+    : {
+        id: 'shift-gen',
+        code: 'GEN_0830',
+        name: 'General Day (08:30 - 17:30)',
+        startTime: '08:30',
+        endTime: '17:30',
+        color: '#2563eb',
+        isRestDay: false,
+        isHoliday: false,
+      }
+
+  const empPunches = world.rawPunches.filter((p) => p.employeeId === emp.id)
+  const lastPunch = empPunches[0]
+  const isClockedIn = lastPunch
+    ? lastPunch.punchType === 'IN' || lastPunch.punchType === 'BREAK_OUT'
+    : false
+
+  const nextSuggestedAction: 'IN' | 'OUT' | 'BREAK_IN' | 'BREAK_OUT' =
+    !lastPunch || lastPunch.punchType === 'OUT'
+      ? 'IN'
+      : lastPunch.punchType === 'BREAK_IN'
+        ? 'BREAK_OUT'
+        : 'OUT'
+
+  const avatarInitials = `${emp.firstName?.charAt(0) ?? ''}${emp.lastName?.charAt(0) ?? ''}`.toUpperCase()
+
+  return {
+    status: 200,
+    body: {
+      employee: {
+        id: emp.id,
+        code: emp.employeeCode ?? 'EMP',
+        name: emp.displayName ?? `${emp.firstName} ${emp.lastName}`,
+        department: emp.departmentId ?? 'Operations',
+        designation: emp.designationId ?? 'Staff',
+        avatarInitials: avatarInitials || 'EM',
+      },
+      shift,
+      currentStatus: {
+        isClockedIn,
+        lastPunchType: lastPunch?.punchType ?? null,
+        lastPunchAt: lastPunch?.punchedAt ?? null,
+        nextSuggestedAction,
+      },
+    },
+  }
+}
+
+function submitKioskPunch(world: World, request: DemoRequest): DemoReply {
+  const body = objectBody(request)
+  const employeeCode = stringField(body, 'employeeCode')?.trim().toUpperCase()
+  if (!employeeCode) throw badRequest('VALIDATION_ERROR', 'employeeCode is required')
+
+  const pin = stringField(body, 'pin')
+  if (!pin) throw badRequest('VALIDATION_ERROR', '4-digit security PIN is required')
+
+  const punchType = (stringField(body, 'punchType') || 'IN') as
+    | 'IN'
+    | 'OUT'
+    | 'BREAK_IN'
+    | 'BREAK_OUT'
+  const kioskDeviceId = stringField(body, 'kioskDeviceId') || 'KIOSK-FACT-01'
+  const kioskLocation = stringField(body, 'kioskLocation') || 'Factory Floor - Gate 3 Entrance'
+  const photoSnapshot = typeof body.photoSnapshot === 'string' ? body.photoSnapshot : undefined
+
+  const emp = Array.from(world.employees.values()).find(
+    (e) => (e.employeeCode ?? '').toUpperCase() === employeeCode || e.id === employeeCode,
+  )
+  if (!emp) throw notFound(`Employee with code "${employeeCode}" not found`)
+
+  // Validate 4-digit PIN: accepts default '1234' or code numeric digits
+  const numericCode = (emp.employeeCode ?? '').replace(/\D/g, '').padStart(4, '0')
+  const isValidPin = pin === '1234' || pin === numericCode
+  if (!isValidPin) {
+    throw badRequest('INVALID_PIN', 'Invalid 4-digit security PIN. Please try again.')
+  }
+
+  const now = new Date().toISOString()
+  const confirmationId = `kiosk-ack-${randomUUID().slice(0, 8)}`
+  const actionLabel =
+    punchType === 'IN'
+      ? 'Clock In'
+      : punchType === 'OUT'
+        ? 'Clock Out'
+        : punchType === 'BREAK_IN'
+          ? 'Break Started'
+          : 'Break Ended'
+
+  const newPunch: DemoRawPunch = {
+    id: `punch-kiosk-${randomUUID().slice(0, 8)}`,
+    employeeId: emp.id,
+    employeeCode: emp.employeeCode ?? 'EMP',
+    employeeName: emp.displayName ?? `${emp.firstName} ${emp.lastName}`,
+    department: emp.departmentId ?? 'Operations',
+    punchedAt: now,
+    punchType,
+    source: 'KIOSK',
+    deviceId: kioskDeviceId,
+    locationName: kioskLocation,
+    geofenceStatus: 'INSIDE',
+    isMockLocation: false,
+    recordedOffline: false,
+    syncedAt: now,
+  }
+
+  world.rawPunches.unshift(newPunch)
+
+  const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const greeting = `${actionLabel} verified! Welcome ${emp.firstName}, your attendance was logged at ${timeString}.`
+
+  return {
+    status: 201,
+    body: {
+      confirmationId,
+      employee: {
+        id: emp.id,
+        code: emp.employeeCode ?? 'EMP',
+        name: newPunch.employeeName,
+        department: newPunch.department,
+      },
+      punchedAt: now,
+      punchType,
+      shiftName: 'General Day (08:30 - 17:30)',
+      greeting,
+      photoCaptured: Boolean(photoSnapshot),
+      rawPunch: newPunch,
+    },
+  }
+}
+
+function listKioskRecentPunches(world: World, request: DemoRequest): DemoReply {
+  const deviceId = request.query.get('deviceId')
+  let punches = world.rawPunches
+  if (deviceId) {
+    punches = punches.filter((p) => p.deviceId === deviceId || p.source === 'KIOSK')
+  }
+  return { status: 200, body: { punches: punches.slice(0, 15) } }
 }
 
 function listDailyAttendance(world: World, request: DemoRequest): DemoReply {

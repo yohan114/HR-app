@@ -29,6 +29,7 @@ import { Loans } from '@/routes/Loans'
 import { Benefits } from '@/routes/Benefits'
 import { Disciplinary } from '@/routes/Disciplinary'
 import { OrgChart } from '@/routes/OrgChart'
+import { AttendanceKiosk } from '@/routes/AttendanceKiosk'
 import type { ReactNode } from 'react'
 
 const queryClient = new QueryClient({
@@ -87,6 +88,14 @@ export function App() {
         <AuthProvider>
           <Routes>
             <Route path="/sign-in" element={<SignIn />} />
+            <Route
+              path="/kiosk-mode"
+              element={
+                <RequireAuth>
+                  <AttendanceKiosk />
+                </RequireAuth>
+              }
+            />
             <Route
               path="/"
               element={
@@ -189,6 +198,16 @@ export function App() {
                     permission={['attendance.record.view', 'attendance.punch.create', 'attendance.shift.view']}
                   >
                     <Attendance />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="kiosk"
+                element={
+                  <RequirePermission
+                    permission={['attendance.record.view', 'attendance.punch.create']}
+                  >
+                    <AttendanceKiosk />
                   </RequirePermission>
                 }
               />

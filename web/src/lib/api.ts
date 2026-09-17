@@ -1411,6 +1411,76 @@ export const attendanceApi = {
   async getLiveStream(limit: number = 20): Promise<{ punches: BiometricLivePunchItem[] }> {
     return apiFetch<{ punches: BiometricLivePunchItem[] }>(`/v1/attendance/devices/live-stream?limit=${limit}`)
   },
+
+  async getKioskEmployeeStatus(employeeCode: string): Promise<KioskEmployeeStatus> {
+    return apiFetch<KioskEmployeeStatus>(
+      `/v1/attendance/kiosk/status/${encodeURIComponent(employeeCode)}`,
+    )
+  },
+
+  async submitKioskPunch(payload: KioskPunchPayload): Promise<KioskPunchResponse> {
+    return apiFetch<KioskPunchResponse>('/v1/attendance/kiosk/punch', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  async listKioskRecentPunches(kioskDeviceId?: string): Promise<{ punches: RawPunchItem[] }> {
+    const qs = kioskDeviceId ? `?deviceId=${encodeURIComponent(kioskDeviceId)}` : ''
+    return apiFetch<{ punches: RawPunchItem[] }>(`/v1/attendance/kiosk/recent-punches${qs}`)
+  },
+}
+
+export interface KioskEmployeeStatus {
+  employee: {
+    id: string
+    code: string
+    name: string
+    department: string
+    designation: string
+    avatarInitials: string
+  }
+  shift: {
+    id: string
+    code: string
+    name: string
+    startTime: string
+    endTime: string
+    color: string
+    isRestDay: boolean
+    isHoliday: boolean
+  } | null
+  currentStatus: {
+    isClockedIn: boolean
+    lastPunchType: PunchType | null
+    lastPunchAt: string | null
+    nextSuggestedAction: PunchType
+  }
+}
+
+export interface KioskPunchPayload {
+  employeeCode: string
+  pin: string
+  punchType: PunchType
+  kioskDeviceId?: string
+  kioskLocation?: string
+  photoSnapshot?: string
+}
+
+export interface KioskPunchResponse {
+  confirmationId: string
+  employee: {
+    id: string
+    code: string
+    name: string
+    department: string
+  }
+  punchedAt: string
+  punchType: PunchType
+  shiftName: string
+  greeting: string
+  photoCaptured: boolean
+  rawPunch: RawPunchItem
 }
 
 export interface BiometricDeviceItem {

@@ -53,6 +53,11 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Attendance',
     permission: ['attendance.record.view', 'attendance.punch.create', 'attendance.shift.view'],
   },
+  {
+    to: '/kiosk',
+    label: 'Clock-In Kiosk',
+    permission: ['attendance.record.view', 'attendance.punch.create'],
+  },
   { to: '/payroll', label: 'Payroll', permission: ['payroll.view', 'payroll.run.view'] },
   {
     to: '/loans',
