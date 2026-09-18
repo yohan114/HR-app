@@ -2028,6 +2028,18 @@ export function buildRouter(world: World): Router {
     .on('GET', '/v1/performance/feedback', (request) => listContinuousFeedback(world, request))
     .on('POST', '/v1/performance/feedback', (request) => sendContinuousFeedback(world, request))
 
+    // 360 Multi-Rater, Cycles & 9-Box (Option 5)
+    .on('GET', '/v1/performance/cycles', (request) => listAppraisalCycles(world, request))
+    .on('POST', '/v1/performance/cycles', (request) => createAppraisalCycle(world, request))
+    .on('PATCH', '/v1/performance/cycles/:id/status', (request) => updateAppraisalCycleStatus(world, request))
+    .on('GET', '/v1/performance/appraisals/:id/360-requests', (request) => get360ReviewRequests(world, request))
+    .on('POST', '/v1/performance/appraisals/:id/360-nominate', (request) => nominate360Reviewer(world, request))
+    .on('GET', '/v1/performance/appraisals/:id/360-matrix', (request) => get360Matrix(world, request))
+    .on('POST', '/v1/performance/360-requests/:id/submit', (request) => submit360Evaluation(world, request))
+    .on('GET', '/v1/performance/cycles/:id/distribution-curve', (request) => getRatingDistribution(world, request))
+    .on('GET', '/v1/performance/cycles/:id/9-box', (request) => get9BoxMatrix(world, request))
+    .on('POST', '/v1/performance/cycles/:id/9-box/calibrate', (request) => calibrate9BoxPosition(world, request))
+
     // Onboarding & Offboarding (V22)
     .on('GET', '/v1/onboarding/profiles', (request) => listOnboardingProfiles(world, request))
     .on('GET', '/v1/onboarding/instances', (request) => listOnboardingInstances(world, request))
@@ -4470,6 +4482,554 @@ function sendContinuousFeedback(world: World, request: DemoRequest): DemoReply {
 
   world.continuousFeedback.set(id, item)
   return { status: 201, body: item }
+}
+
+/* -------------------------------------------------------------------------- */
+/* 360 Multi-Rater Matrix, Cycles & 9-Box Grid Handlers (Option 5)             */
+/* -------------------------------------------------------------------------- */
+
+function listAppraisalCycles(world: World, request: DemoRequest): DemoReply {
+  authenticate(world, request)
+  const cycles = Array.from(world.evaluationCycles.values()).map((c) => {
+    const apps = Array.from(world.appraisals.values()).filter((a) => a.cycleId === c.id)
+    const completed = apps.filter((a) => a.status === 'CLOSED' || a.status === 'ACKNOWLEDGED').length
+    return {
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      status: c.status,
+      startDate: c.startDate,
+      endDate: c.endDate,
+      selfReviewDeadline: c.selfReviewDeadline,
+      peerReviewDeadline: c.peerReviewDeadline || c.selfReviewDeadline,
+      managerReviewDeadline: c.managerReviewDeadline,
+      calibrationDate: c.calibrationDeadline,
+      totalEligibleEmployees: world.employees.size,
+      completedAppraisals: completed,
+      inProgressAppraisals: Math.max(0, world.employees.size - completed),
+    }
+  })
+  return { status: 200, body: { cycles } }
+}
+
+function createAppraisalCycle(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'performance.manage')
+  const body = objectBody(request)
+  const id = `eval-${Date.now()}`
+  const cycle = {
+    id,
+    code: (body.code as string) || `EVAL-${new Date().getFullYear()}-Q${Math.floor(new Date().getMonth() / 3) + 1}`,
+    name: (body.name as string) || 'New Appraisal Cycle',
+    status: 'DRAFT',
+    startDate: (body.startDate as string) || new Date().toISOString().slice(0, 10),
+    endDate: (body.endDate as string) || '2026-12-31',
+    selfReviewDeadline: (body.selfReviewDeadline as string) || '2026-11-15',
+    peerReviewDeadline: (body.peerReviewDeadline as string) || '2026-11-20',
+    managerReviewDeadline: (body.managerReviewDeadline as string) || '2026-11-25',
+    calibrationDeadline: (body.calibrationDate as string) || '2026-11-30',
+  }
+  world.evaluationCycles.set(id, cycle)
+  return { status: 201, body: cycle }
+}
+
+function updateAppraisalCycleStatus(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'performance.manage')
+  const id = pathParam(request, 'id')
+  const cycle = world.evaluationCycles.get(id)
+  if (!cycle) throw notFound('Appraisal cycle not found')
+  const body = objectBody(request)
+  if (body.status) {
+    cycle.status = body.status
+  }
+  world.evaluationCycles.set(id, cycle)
+  return { status: 200, body: cycle }
+}
+
+function get360ReviewRequests(world: World, request: DemoRequest): DemoReply {
+  authenticate(world, request)
+  const appraisalId = pathParam(request, 'id')
+  let requests = Array.from(world.mraReviewRequests.values()).filter((r) => r.appraisalId === appraisalId)
+
+  if (requests.length === 0) {
+    const emps = Array.from(world.employees.values())
+    const defaultNominations = [
+      {
+        id: `mra-${appraisalId}-01`,
+        appraisalId,
+        reviewerEmployeeId: emps[2]?.id || 'emp-03',
+        reviewerEmployeeName: emps[2]?.displayName ?? 'Mohamed Rizwan',
+        reviewerTitle: 'Lead QA Automation Engineer',
+        department: departmentName(emps[2]?.departmentId) || 'Engineering',
+        relationship: 'PEER',
+        status: 'COMPLETED',
+        anonymous: false,
+        invitedAt: '2026-03-01T10:00:00Z',
+        submittedAt: '2026-03-08T14:30:00Z',
+      },
+      {
+        id: `mra-${appraisalId}-02`,
+        appraisalId,
+        reviewerEmployeeId: emps[3]?.id || 'emp-04',
+        reviewerEmployeeName: emps[3]?.displayName ?? 'Dilani Perera',
+        reviewerTitle: 'Senior Payroll Specialist',
+        department: departmentName(emps[3]?.departmentId) || 'Finance',
+        relationship: 'PEER',
+        status: 'COMPLETED',
+        anonymous: true,
+        invitedAt: '2026-03-01T10:00:00Z',
+        submittedAt: '2026-03-07T11:20:00Z',
+      },
+      {
+        id: `mra-${appraisalId}-03`,
+        appraisalId,
+        reviewerEmployeeId: emps[4]?.id || 'emp-05',
+        reviewerEmployeeName: emps[4]?.displayName ?? 'Saman Perera',
+        reviewerTitle: 'Senior Assembly Specialist',
+        department: departmentName(emps[4]?.departmentId) || 'Operations',
+        relationship: 'SUBORDINATE',
+        status: 'COMPLETED',
+        anonymous: true,
+        invitedAt: '2026-03-02T09:15:00Z',
+        submittedAt: '2026-03-09T16:00:00Z',
+      },
+      {
+        id: `mra-${appraisalId}-04`,
+        appraisalId,
+        reviewerEmployeeId: emps[1]?.id || 'emp-02',
+        reviewerEmployeeName: emps[1]?.displayName ?? 'Priya Balasubramaniam',
+        reviewerTitle: 'Lead Talent Partner',
+        department: departmentName(emps[1]?.departmentId) || 'People & Culture',
+        relationship: 'CROSS_FUNCTIONAL',
+        status: 'PENDING',
+        anonymous: false,
+        invitedAt: '2026-03-03T11:00:00Z',
+      },
+    ]
+    for (const req of defaultNominations) {
+      world.mraReviewRequests.set(req.id, req)
+    }
+    requests = defaultNominations
+  }
+
+  return { status: 200, body: { requests } }
+}
+
+function nominate360Reviewer(world: World, request: DemoRequest): DemoReply {
+  authenticate(world, request)
+  const appraisalId = pathParam(request, 'id')
+  const body = objectBody(request)
+  const reviewerEmp = world.employees.get(body.reviewerEmployeeId as string)
+
+  const id = `mra-${Date.now()}`
+  const nomination = {
+    id,
+    appraisalId,
+    reviewerEmployeeId: body.reviewerEmployeeId as string,
+    reviewerEmployeeName: reviewerEmp?.displayName ?? reviewerEmp?.firstName ?? 'Nominated Reviewer',
+    reviewerTitle: (reviewerEmp?.customFields?.title as string) || 'Senior Colleague',
+    department: departmentName(reviewerEmp?.departmentId) || 'Cross-Functional',
+    relationship: body.relationship || 'PEER',
+    status: 'PENDING',
+    anonymous: Boolean(body.anonymous),
+    invitedAt: new Date().toISOString(),
+  }
+
+  world.mraReviewRequests.set(id, nomination)
+  return { status: 201, body: nomination }
+}
+
+function get360Matrix(world: World, request: DemoRequest): DemoReply {
+  authenticate(world, request)
+  const appraisalId = pathParam(request, 'id')
+  const appraisal = world.appraisals.get(appraisalId)
+  const nominations = Array.from(world.mraReviewRequests.values()).filter((r) => r.appraisalId === appraisalId)
+
+  const competencies = [
+    {
+      competencyId: 'comp-01',
+      code: 'ARCH',
+      name: 'Modular System Architecture',
+      groupName: 'Technical Mastery',
+      targetLevel: 4.0,
+      selfScore: 4.8,
+      managerScore: 4.5,
+      peerScore: 4.6,
+      subordinateScore: 4.4,
+      crossFunctionalScore: 4.5,
+      overallScore: 4.56,
+      gap: 0.56,
+    },
+    {
+      competencyId: 'comp-02',
+      code: 'OWNER',
+      name: 'Extreme Delivery Ownership',
+      groupName: 'Core Culture',
+      targetLevel: 4.0,
+      selfScore: 5.0,
+      managerScore: 4.8,
+      peerScore: 4.7,
+      subordinateScore: 4.6,
+      crossFunctionalScore: 4.8,
+      overallScore: 4.78,
+      gap: 0.78,
+    },
+    {
+      competencyId: 'comp-03',
+      code: 'SPEED',
+      name: 'Execution Velocity & Rigor',
+      groupName: 'Delivery',
+      targetLevel: 3.5,
+      selfScore: 4.2,
+      managerScore: 4.0,
+      peerScore: 4.3,
+      subordinateScore: 4.1,
+      crossFunctionalScore: 4.2,
+      overallScore: 4.16,
+      gap: 0.66,
+    },
+    {
+      competencyId: 'comp-04',
+      code: 'LEAD',
+      name: 'Strategic Mentorship & Coaching',
+      groupName: 'People Leadership',
+      targetLevel: 4.0,
+      selfScore: 4.0,
+      managerScore: 3.8,
+      peerScore: 4.2,
+      subordinateScore: 4.5,
+      crossFunctionalScore: 4.0,
+      overallScore: 4.1,
+      gap: 0.1,
+    },
+    {
+      competencyId: 'comp-05',
+      code: 'COMM',
+      name: 'Cross-Team Communication',
+      groupName: 'Collaboration',
+      targetLevel: 4.0,
+      selfScore: 4.0,
+      managerScore: 3.8,
+      peerScore: 3.9,
+      subordinateScore: 4.0,
+      crossFunctionalScore: 3.7,
+      overallScore: 3.88,
+      gap: -0.12,
+    },
+  ]
+
+  const strengths = [
+    'Deep technical ownership and architectural rigor recognized by all peer raters',
+    'Exceptionally high trust and psychological safety reported by direct reports',
+    'Proactive production incident resolution and root cause prevention',
+  ]
+
+  const developmentAreas = [
+    'Active participation in executive product discovery sessions',
+    'Proactive delegation of routine operational runbooks to junior engineers',
+  ]
+
+  return {
+    status: 200,
+    body: {
+      appraisalId,
+      employeeName: appraisal?.employeeName || 'Kasun Fernando',
+      department: appraisal?.departmentName || 'Engineering',
+      cycleName: appraisal?.cycleName || '2026 H1 Appraisal Cycle',
+      nominations,
+      competencies,
+      strengths,
+      developmentAreas,
+    },
+  }
+}
+
+function submit360Evaluation(world: World, request: DemoRequest): DemoReply {
+  authenticate(world, request)
+  const requestId = pathParam(request, 'id')
+  const req = world.mraReviewRequests.get(requestId)
+  if (!req) throw notFound('Review request not found')
+
+  req.status = 'COMPLETED'
+  req.submittedAt = new Date().toISOString()
+  world.mraReviewRequests.set(requestId, req)
+
+  return { status: 200, body: { success: true } }
+}
+
+function getRatingDistribution(world: World, request: DemoRequest): DemoReply {
+  authenticate(world, request)
+  const cycleId = pathParam(request, 'id')
+  const cycle = world.evaluationCycles.get(cycleId)
+
+  const employees = Array.from(world.employees.values())
+  const seededScores: number[] = [4.8, 4.4, 4.3, 3.9, 3.8, 3.6, 3.5, 3.4, 3.2, 3.1, 2.7, 2.1]
+
+  const totalCalibrated = employees.length
+  let totalScore = 0
+
+  const counts = [0, 0, 0, 0, 0]
+  employees.forEach((emp, i) => {
+    const override = world.nineBoxOverrides.get(emp.id)
+    const score = override?.performanceScore ?? seededScores[i % seededScores.length] ?? 3.5
+    totalScore += score
+
+    const idx = score < 2.5 ? 0 : score < 3.0 ? 1 : score < 3.9 ? 2 : score < 4.6 ? 3 : 4
+    counts[idx] = (counts[idx] ?? 0) + 1
+  })
+
+  const averageScore = Math.round((totalScore / Math.max(1, totalCalibrated)) * 100) / 100
+
+  const bands = [
+    {
+      bandIndex: 1,
+      label: '1 - Unsatisfactory (PIP)',
+      scoreRange: '1.0 - 2.4',
+      targetPercent: 5,
+      actualCount: counts[0] ?? 0,
+      actualPercent: Math.round(((counts[0] ?? 0) / totalCalibrated) * 100),
+      variancePercent: Math.round((((counts[0] ?? 0) / totalCalibrated) * 100 - 5) * 10) / 10,
+      tone: 'danger' as const,
+    },
+    {
+      bandIndex: 2,
+      label: '2 - Developing / Needs Growth',
+      scoreRange: '2.5 - 2.9',
+      targetPercent: 10,
+      actualCount: counts[1] ?? 0,
+      actualPercent: Math.round(((counts[1] ?? 0) / totalCalibrated) * 100),
+      variancePercent: Math.round((((counts[1] ?? 0) / totalCalibrated) * 100 - 10) * 10) / 10,
+      tone: 'warning' as const,
+    },
+    {
+      bandIndex: 3,
+      label: '3 - Meets Expectations (Solid)',
+      scoreRange: '3.0 - 3.8',
+      targetPercent: 60,
+      actualCount: counts[2] ?? 0,
+      actualPercent: Math.round(((counts[2] ?? 0) / totalCalibrated) * 100),
+      variancePercent: Math.round((((counts[2] ?? 0) / totalCalibrated) * 100 - 60) * 10) / 10,
+      tone: 'neutral' as const,
+    },
+    {
+      bandIndex: 4,
+      label: '4 - Exceeds Expectations (Star)',
+      scoreRange: '3.9 - 4.5',
+      targetPercent: 20,
+      actualCount: counts[3] ?? 0,
+      actualPercent: Math.round(((counts[3] ?? 0) / totalCalibrated) * 100),
+      variancePercent: Math.round((((counts[3] ?? 0) / totalCalibrated) * 100 - 20) * 10) / 10,
+      tone: 'success' as const,
+    },
+    {
+      bandIndex: 5,
+      label: '5 - Role Model / Top 5%',
+      scoreRange: '4.6 - 5.0',
+      targetPercent: 5,
+      actualCount: counts[4] ?? 0,
+      actualPercent: Math.round(((counts[4] ?? 0) / totalCalibrated) * 100),
+      variancePercent: Math.round((((counts[4] ?? 0) / totalCalibrated) * 100 - 5) * 10) / 10,
+      tone: 'success' as const,
+    },
+  ]
+
+  const calibrationAlerts: string[] = []
+  if ((bands[3]?.actualPercent ?? 0) > 25) {
+    calibrationAlerts.push(
+      `⚠️ Band 4 ('Exceeds Expectations') is at ${bands[3]?.actualPercent}%, exceeding standard target of 20% by +${bands[3]?.variancePercent}%. Committee calibration review recommended.`,
+    )
+  }
+  if ((bands[0]?.actualPercent ?? 0) === 0) {
+    calibrationAlerts.push(
+      `ℹ️ Band 1 has 0 evaluations. Verify whether underperforming employees require formal Performance Improvement Plans (PIP).`,
+    )
+  }
+
+  return {
+    status: 200,
+    body: {
+      cycleId,
+      cycleName: cycle?.name || 'FY2025/2026 Annual Performance Cycle',
+      totalCalibrated,
+      averageScore,
+      bands,
+      calibrationAlerts,
+    },
+  }
+}
+
+function get9BoxMatrix(world: World, request: DemoRequest): DemoReply {
+  authenticate(world, request)
+  const cycleId = pathParam(request, 'id')
+  const cycle = world.evaluationCycles.get(cycleId)
+  const department = request.query.get('department')
+
+  const employees = Array.from(world.employees.values())
+  let filtered = employees
+  if (department && department !== 'ALL') {
+    filtered = employees.filter((e) => departmentName(e.departmentId) === department)
+  }
+
+  const seededScores = [4.8, 4.4, 4.3, 3.9, 3.8, 3.6, 3.5, 3.4, 3.2, 3.1, 2.7, 2.1]
+  const seededPotentials: Array<'LOW' | 'MEDIUM' | 'HIGH'> = [
+    'HIGH',
+    'HIGH',
+    'HIGH',
+    'HIGH',
+    'MEDIUM',
+    'MEDIUM',
+    'MEDIUM',
+    'LOW',
+    'MEDIUM',
+    'LOW',
+    'HIGH',
+    'LOW',
+  ]
+
+  const cellDefinitions = [
+    {
+      boxKey: 'enigma',
+      title: 'Enigma / Rough Diamond',
+      performance: 'LOW' as const,
+      potential: 'HIGH' as const,
+      description: 'High potential but currently lagging in output. Needs targeted mentoring.',
+      colorTone: '#fbbf24',
+    },
+    {
+      boxKey: 'high_potential',
+      title: 'High Potential / Growth',
+      performance: 'MEDIUM' as const,
+      potential: 'HIGH' as const,
+      description: 'Strong potential and solid performance. High-trajectory succession candidate.',
+      colorTone: '#38bdf8',
+    },
+    {
+      boxKey: 'star',
+      title: 'Star / Future Executive',
+      performance: 'HIGH' as const,
+      potential: 'HIGH' as const,
+      description: 'Top-tier performer with unmatched leadership bandwidth. Retain and reward.',
+      colorTone: '#10b981',
+    },
+    {
+      boxKey: 'dilemma',
+      title: 'Dilemma / Inconsistent',
+      performance: 'LOW' as const,
+      potential: 'MEDIUM' as const,
+      description: 'Inconsistent execution despite capability. Review role fit and blockers.',
+      colorTone: '#f97316',
+    },
+    {
+      boxKey: 'core_contributor',
+      title: 'Core Contributor / Backbone',
+      performance: 'MEDIUM' as const,
+      potential: 'MEDIUM' as const,
+      description: 'Reliable, steady team player delivering dependable business outcomes.',
+      colorTone: '#6366f1',
+    },
+    {
+      boxKey: 'high_performer',
+      title: 'High Performer / Master',
+      performance: 'HIGH' as const,
+      potential: 'MEDIUM' as const,
+      description: 'Delivers at an elite level in current position. Deep domain mastery.',
+      colorTone: '#059669',
+    },
+    {
+      boxKey: 'underperformer',
+      title: 'Underperformer / Action Plan',
+      performance: 'LOW' as const,
+      potential: 'LOW' as const,
+      description: 'Low performance and low growth potential. Require immediate structured PIP.',
+      colorTone: '#ef4444',
+    },
+    {
+      boxKey: 'effective',
+      title: 'Effective / Steady Worker',
+      performance: 'MEDIUM' as const,
+      potential: 'LOW' as const,
+      description: 'Meets expectations in structured roles. Value within steady operational scope.',
+      colorTone: '#94a3b8',
+    },
+    {
+      boxKey: 'specialist',
+      title: 'Trusted Specialist',
+      performance: 'HIGH' as const,
+      potential: 'LOW' as const,
+      description: 'Exceptional individual contributor. Best utilized as dedicated technical authority.',
+      colorTone: '#0284c7',
+    },
+  ]
+
+  const grid = cellDefinitions.map((cell) => ({
+    ...cell,
+    employees: [] as any[],
+  }))
+
+  filtered.forEach((emp, i) => {
+    const override = world.nineBoxOverrides.get(emp.id)
+    const score = override?.performanceScore ?? seededScores[i % seededScores.length] ?? 3.5
+    const potential = override?.potentialLevel ?? seededPotentials[i % seededPotentials.length] ?? 'MEDIUM'
+
+    const perfLevel: 'LOW' | 'MEDIUM' | 'HIGH' = score >= 3.9 ? 'HIGH' : score >= 3.0 ? 'MEDIUM' : 'LOW'
+
+    let targetBoxKey = 'core_contributor'
+    if (potential === 'HIGH' && perfLevel === 'HIGH') targetBoxKey = 'star'
+    else if (potential === 'HIGH' && perfLevel === 'MEDIUM') targetBoxKey = 'high_potential'
+    else if (potential === 'HIGH' && perfLevel === 'LOW') targetBoxKey = 'enigma'
+    else if (potential === 'MEDIUM' && perfLevel === 'HIGH') targetBoxKey = 'high_performer'
+    else if (potential === 'MEDIUM' && perfLevel === 'MEDIUM') targetBoxKey = 'core_contributor'
+    else if (potential === 'MEDIUM' && perfLevel === 'LOW') targetBoxKey = 'dilemma'
+    else if (potential === 'LOW' && perfLevel === 'HIGH') targetBoxKey = 'specialist'
+    else if (potential === 'LOW' && perfLevel === 'MEDIUM') targetBoxKey = 'effective'
+    else targetBoxKey = 'underperformer'
+
+    const cell = grid.find((c) => c.boxKey === targetBoxKey)
+    if (cell) {
+      const nameParts = (emp.displayName ?? emp.firstName ?? 'Employee').split(' ')
+      const initials = (nameParts[0]?.[0] || 'E') + (nameParts[1]?.[0] || '')
+      cell.employees.push({
+        employeeId: emp.id,
+        employeeCode: emp.employeeCode || `E00${i + 1}`,
+        fullName: emp.displayName ?? emp.firstName ?? 'Employee',
+        designation: (emp.customFields?.title as string) || 'Senior Professional',
+        department: departmentName(emp.departmentId) || 'Operations',
+        performanceScore: score,
+        potentialLevel: potential,
+        currentBoxKey: targetBoxKey,
+        avatarInitials: initials.toUpperCase(),
+      })
+    }
+  })
+
+  return {
+    status: 200,
+    body: {
+      cycleId,
+      cycleName: cycle?.name || 'FY2025/2026 Performance Cycle',
+      grid,
+      totalEmployees: filtered.length,
+    },
+  }
+}
+
+function calibrate9BoxPosition(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'performance.manage')
+  const body = objectBody(request)
+  const employeeId = stringField(body, 'employeeId')
+  if (!employeeId) throw badRequest('MISSING_FIELD', 'employeeId is required')
+
+  const existing = world.nineBoxOverrides.get(employeeId) || {}
+  const updated = {
+    ...existing,
+    potentialLevel: (body.potentialLevel as 'LOW' | 'MEDIUM' | 'HIGH') || existing.potentialLevel || 'HIGH',
+    performanceScore: body.performanceScore !== undefined ? Number(body.performanceScore) : existing.performanceScore,
+  }
+
+  world.nineBoxOverrides.set(employeeId, updated)
+  return { status: 200, body: { success: true } }
 }
 
 /* -------------------------------------------------------------------------- */

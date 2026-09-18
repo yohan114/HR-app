@@ -305,6 +305,8 @@ export interface World {
   competencies: Map<string, any>
   evaluationCycles: Map<string, any>
   appraisals: Map<string, any>
+  mraReviewRequests: Map<string, any>
+  nineBoxOverrides: Map<string, any>
   continuousFeedback: Map<string, any>
   // Onboarding & Offboarding (V22)
   onboardingStages: Map<string, any>
@@ -635,6 +637,8 @@ export function createWorld(): World {
     competencies: new Map(),
     evaluationCycles: new Map(),
     appraisals: new Map(),
+    mraReviewRequests: new Map(),
+    nineBoxOverrides: new Map(),
     continuousFeedback: new Map(),
     onboardingStages: new Map(),
     onboardingProfiles: new Map(),
@@ -3056,6 +3060,24 @@ function seedPerformanceData(world: World): void {
 
   const evalCycles = [
     {
+      id: 'eval-2026-annual',
+      code: 'EVAL-2026-ANNUAL',
+      name: 'FY2025/2026 Annual Performance & 360 Review',
+      startDate: '2025-04-01',
+      endDate: '2026-03-31',
+      goalWeight: 50.0,
+      competencyWeight: 30.0,
+      mraWeight: 20.0,
+      selfReviewDeadline: '2026-03-15',
+      peerReviewDeadline: '2026-03-22',
+      managerReviewDeadline: '2026-03-28',
+      calibrationDeadline: '2026-03-31',
+      status: 'CALIBRATION' as const,
+      totalEligibleEmployees: 12,
+      completedAppraisals: 10,
+      inProgressAppraisals: 2,
+    },
+    {
       id: 'eval-2026-h1',
       code: 'EVAL-2026-H1',
       name: '2026 H1 Mid-Year Appraisal Cycle',
@@ -3065,9 +3087,31 @@ function seedPerformanceData(world: World): void {
       competencyWeight: 30.0,
       mraWeight: 10.0,
       selfReviewDeadline: '2026-06-15',
+      peerReviewDeadline: '2026-06-20',
       managerReviewDeadline: '2026-06-25',
       calibrationDeadline: '2026-06-30',
-      status: 'ACTIVE' as const,
+      status: 'SELF_REVIEW' as const,
+      totalEligibleEmployees: 12,
+      completedAppraisals: 3,
+      inProgressAppraisals: 9,
+    },
+    {
+      id: 'eval-2025-annual',
+      code: 'EVAL-2025-ANNUAL',
+      name: 'FY2024/2025 Annual Performance Cycle',
+      startDate: '2024-04-01',
+      endDate: '2025-03-31',
+      goalWeight: 50.0,
+      competencyWeight: 40.0,
+      mraWeight: 10.0,
+      selfReviewDeadline: '2025-03-15',
+      peerReviewDeadline: '2025-03-20',
+      managerReviewDeadline: '2025-03-28',
+      calibrationDeadline: '2025-03-31',
+      status: 'CLOSED' as const,
+      totalEligibleEmployees: 12,
+      completedAppraisals: 12,
+      inProgressAppraisals: 0,
     },
   ]
   for (const ec of evalCycles) world.evaluationCycles.set(ec.id, ec)

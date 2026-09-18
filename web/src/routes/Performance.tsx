@@ -13,6 +13,8 @@ import {
 } from '../components/ui'
 import {
   performanceApi,
+  type AppraisalCycleItem,
+  type AppraisalCycleStatus,
   type AppraisalDetail,
   type AppraisalSummary,
   type Competency,
@@ -21,8 +23,17 @@ import {
   type Goal,
   type GoalCategory,
 } from '../lib/api'
+import { ThreeSixtyMatrixModal } from '../components/performance/ThreeSixtyMatrixModal'
+import { RatingDistributionCard } from '../components/performance/RatingDistributionCard'
+import { NineBoxMatrixCard } from '../components/performance/NineBoxMatrixCard'
 
-type PerformanceTab = 'appraisals' | 'goals' | 'competencies' | 'feedback'
+type PerformanceTab =
+  | 'appraisals'
+  | 'cycles'
+  | 'calibration'
+  | 'goals'
+  | 'competencies'
+  | 'feedback'
 
 export function Performance() {
   const [activeTab, setActiveTab] = useState<PerformanceTab>('appraisals')
@@ -35,6 +46,24 @@ export function Performance() {
   const [competencyGroups, setCompetencyGroups] = useState<CompetencyGroupItem[]>([])
   const [competencies, setCompetencies] = useState<Competency[]>([])
   const [feedbacks, setFeedbacks] = useState<ContinuousFeedback[]>([])
+  const [cycles, setCycles] = useState<AppraisalCycleItem[]>([])
+  const [selectedCycleId, setSelectedCycleId] = useState<string>('eval-2026-annual')
+
+  // Option 5: 360 Matrix & Cycles modals
+  const [selected360AppraisalId, setSelected360AppraisalId] = useState<string | null>(null)
+  const [is360ModalOpen, setIs360ModalOpen] = useState(false)
+  const [isCreateCycleModalOpen, setIsCreateCycleModalOpen] = useState(false)
+  const [newCycleForm, setNewCycleForm] = useState({
+    code: 'CYC-2026-H2',
+    name: '2026 H2 Mid-Year Performance & 360 Review',
+    startDate: '2026-07-01',
+    endDate: '2026-12-31',
+    selfReviewDeadline: '2026-11-15',
+    peerReviewDeadline: '2026-11-30',
+    managerReviewDeadline: '2026-12-15',
+    calibrationDate: '2026-12-22',
+    totalEligibleEmployees: 45,
+  })
 
   // Selection & Details
   const [selectedAppraisal, setSelectedAppraisal] = useState<AppraisalDetail | null>(null)
@@ -78,21 +107,74 @@ export function Performance() {
 
   const loadAll = async () => {
     try {
-      const [apprRes, goalsRes, compRes, fbRes] = await Promise.all([
+      const [apprRes, goalsRes, compRes, fbRes, cyclesRes] = await Promise.all([
         performanceApi.getTeamAppraisals(),
         performanceApi.getGoals(),
         performanceApi.getCompetencies(),
         performanceApi.getFeedback(),
+        performanceApi.getAppraisalCycles(),
       ])
       setAppraisals(apprRes.appraisals)
       setGoals(goalsRes.goals)
       setCompetencyGroups(compRes.groups)
       setCompetencies(compRes.competencies)
       setFeedbacks(fbRes.items)
+      setCycles(cyclesRes.cycles)
+      if (cyclesRes.cycles.length > 0 && !selectedCycleId && cyclesRes.cycles[0]) {
+        setSelectedCycleId(cyclesRes.cycles[0].id)
+      }
     } catch (err) {
       console.error('Failed to load performance data', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleOpen360Matrix = (appraisalId: string) => {
+    setSelected360AppraisalId(appraisalId)
+    setIs360ModalOpen(true)
+  }
+
+  const handleAdvanceCycleStatus = async (cycleId: string, currentStatus: AppraisalCycleStatus) => {
+    const nextStatusMap: Record<AppraisalCycleStatus, AppraisalCycleStatus> = {
+      DRAFT: 'SELF_REVIEW',
+      SELF_REVIEW: 'PEER_360',
+      PEER_360: 'MANAGER_REVIEW',
+      MANAGER_REVIEW: 'CALIBRATION',
+      CALIBRATION: 'SIGN_OFF',
+      SIGN_OFF: 'CLOSED',
+      CLOSED: 'CLOSED',
+    }
+    const nextStatus = nextStatusMap[currentStatus]
+    if (nextStatus === currentStatus) return
+
+    setActionLoading(true)
+    try {
+      await performanceApi.updateAppraisalCycleStatus(cycleId, nextStatus)
+      await loadAll()
+    } catch (err) {
+      console.error('Failed to advance cycle stage', err)
+      alert('Failed to advance cycle stage')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleCreateCycle = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setActionLoading(true)
+    try {
+      await performanceApi.createAppraisalCycle({
+        ...newCycleForm,
+        status: 'DRAFT',
+      })
+      setIsCreateCycleModalOpen(false)
+      await loadAll()
+    } catch (err) {
+      console.error('Failed to create appraisal cycle', err)
+      alert('Failed to create appraisal cycle')
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -279,6 +361,11 @@ export function Performance() {
           </p>
         </div>
         <div className="action-bar">
+          {activeTab === 'cycles' && (
+            <Button variant="primary" onClick={() => setIsCreateCycleModalOpen(true)}>
+              + Launch Appraisal Cycle
+            </Button>
+          )}
           {activeTab === 'goals' && (
             <Button variant="primary" onClick={() => setIsGoalModalOpen(true)}>
               + Add Goal
@@ -295,8 +382,8 @@ export function Performance() {
       {/* KPI Highlights */}
       <section className="kpi-grid">
         <div className="kpi-card">
-          <div className="kpi-card__val">2026 Q1</div>
-          <div className="kpi-card__lbl">Active OKR Cycle</div>
+          <div className="kpi-card__val">{cycles.length}</div>
+          <div className="kpi-card__lbl">Appraisal Cycles</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-card__val">{goals.length}</div>
@@ -320,6 +407,8 @@ export function Performance() {
       <Tabs
         items={[
           { id: 'appraisals', label: `Appraisals & Reviews (${appraisals.length})` },
+          { id: 'cycles', label: `Appraisal Cycles (${cycles.length})` },
+          { id: 'calibration', label: 'Rating Curve & 9-Box Grid' },
           { id: 'goals', label: `Goals & OKRs (${goals.length})` },
           { id: 'competencies', label: `Competency Framework (${competencies.length})` },
           { id: 'feedback', label: `Continuous Feedback (${feedbacks.length})` },
@@ -412,9 +501,14 @@ export function Performance() {
                 {
                   header: 'Actions',
                   render: (a) => (
-                    <Button variant="secondary" onClick={() => handleOpenAppraisal(a.id)}>
-                      Open Evaluation
-                    </Button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <Button variant="secondary" onClick={() => handleOpenAppraisal(a.id)}>
+                        Evaluation
+                      </Button>
+                      <Button variant="secondary" onClick={() => handleOpen360Matrix(a.id)}>
+                        360° Matrix
+                      </Button>
+                    </div>
                   ),
                 },
               ]}
@@ -422,6 +516,109 @@ export function Performance() {
             />
           )}
         </Card>
+      )}
+
+      {/* Tab: Appraisal Cycles Management */}
+      {activeTab === 'cycles' && (
+        <Card
+          title="Performance Appraisal Cycles & Milestones"
+          actions={
+            <Button variant="primary" onClick={() => setIsCreateCycleModalOpen(true)}>
+              + Launch Appraisal Cycle
+            </Button>
+          }
+        >
+          <DataTable<AppraisalCycleItem>
+            caption="Active and Historical Organization Performance Cycles"
+            rowKey={(c) => c.id}
+            columns={[
+              {
+                header: 'Cycle Name & Code',
+                render: (c) => (
+                  <div>
+                    <div className="font-medium">{c.name}</div>
+                    <div className="text-muted text-xs font-mono">{c.code}</div>
+                  </div>
+                ),
+              },
+              {
+                header: 'Lifecycle Phase',
+                render: (c) => {
+                  const tone =
+                    c.status === 'CLOSED'
+                      ? 'neutral'
+                      : c.status === 'CALIBRATION' || c.status === 'PEER_360'
+                        ? 'warning'
+                        : c.status === 'SIGN_OFF'
+                          ? 'success'
+                          : 'neutral'
+                  return <Badge tone={tone}>{c.status.replace(/_/g, ' ')}</Badge>
+                },
+              },
+              {
+                header: 'Milestone Deadlines',
+                render: (c) => (
+                  <div className="text-xs text-muted" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <div>Self-Review: <strong>{c.selfReviewDeadline}</strong></div>
+                    <div>Peer 360: <strong>{c.peerReviewDeadline}</strong></div>
+                    <div>Manager: <strong>{c.managerReviewDeadline}</strong></div>
+                    <div>Calibration: <strong>{c.calibrationDate}</strong></div>
+                  </div>
+                ),
+              },
+              {
+                header: 'Progress & Completion',
+                render: (c) => {
+                  const percent = Math.round((c.completedAppraisals / (c.totalEligibleEmployees || 1)) * 100)
+                  return (
+                    <div style={{ minWidth: '130px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
+                        <span>{c.completedAppraisals} / {c.totalEligibleEmployees} completed</span>
+                        <strong>{percent}%</strong>
+                      </div>
+                      <div className="progress-track">
+                        <div className="progress-fill" style={{ width: `${percent}%` }} />
+                      </div>
+                    </div>
+                  )
+                },
+              },
+              {
+                header: 'Lifecycle Actions',
+                render: (c) => (
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    {c.status !== 'CLOSED' && (
+                      <Button
+                        variant="secondary"
+                        disabled={actionLoading}
+                        onClick={() => handleAdvanceCycleStatus(c.id, c.status)}
+                      >
+                        Advance Phase →
+                      </Button>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+            rows={cycles}
+          />
+        </Card>
+      )}
+
+      {/* Tab: Rating Distribution Curve & 9-Box Talent Matrix */}
+      {activeTab === 'calibration' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <RatingDistributionCard
+            cycles={cycles}
+            selectedCycleId={selectedCycleId}
+            onCycleChange={setSelectedCycleId}
+          />
+          <NineBoxMatrixCard
+            cycles={cycles}
+            selectedCycleId={selectedCycleId}
+            onCycleChange={setSelectedCycleId}
+          />
+        </div>
       )}
 
       {/* Tab: Goals & OKRs */}
@@ -1024,6 +1221,129 @@ export function Performance() {
               {actionLoading ? 'Returning...' : 'Confirm Return for Revision'}
             </Button>
           </div>
+        </form>
+      </Modal>
+
+      {/* Option 5: 360 Multi-Rater Matrix Modal */}
+      <ThreeSixtyMatrixModal
+        appraisalId={selected360AppraisalId}
+        isOpen={is360ModalOpen}
+        onClose={() => {
+          setIs360ModalOpen(false)
+          setSelected360AppraisalId(null)
+        }}
+      />
+
+      {/* Option 5: Modal: Launch New Appraisal Cycle */}
+      <Modal
+        isOpen={isCreateCycleModalOpen}
+        onClose={() => setIsCreateCycleModalOpen(false)}
+        title="Launch New Organization Appraisal Cycle"
+        size="medium"
+        actions={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="secondary" onClick={() => setIsCreateCycleModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={actionLoading} onClick={handleCreateCycle}>
+              Launch Evaluation Cycle
+            </Button>
+          </div>
+        }
+      >
+        <form onSubmit={handleCreateCycle} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+            <Field label="Cycle Code" required>
+              <input
+                type="text"
+                className="input"
+                required
+                value={newCycleForm.code}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, code: e.target.value })}
+              />
+            </Field>
+            <Field label="Cycle Title / Name" required>
+              <input
+                type="text"
+                className="input"
+                required
+                value={newCycleForm.name}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, name: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="Cycle Period Start" required>
+              <input
+                type="date"
+                className="input"
+                required
+                value={newCycleForm.startDate}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, startDate: e.target.value })}
+              />
+            </Field>
+            <Field label="Cycle Period End" required>
+              <input
+                type="date"
+                className="input"
+                required
+                value={newCycleForm.endDate}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, endDate: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="Self-Review Deadline" required>
+              <input
+                type="date"
+                className="input"
+                required
+                value={newCycleForm.selfReviewDeadline}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, selfReviewDeadline: e.target.value })}
+              />
+            </Field>
+            <Field label="360 Peer Review Deadline" required>
+              <input
+                type="date"
+                className="input"
+                required
+                value={newCycleForm.peerReviewDeadline}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, peerReviewDeadline: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="Manager Review Deadline" required>
+              <input
+                type="date"
+                className="input"
+                required
+                value={newCycleForm.managerReviewDeadline}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, managerReviewDeadline: e.target.value })}
+              />
+            </Field>
+            <Field label="Committee Calibration Date" required>
+              <input
+                type="date"
+                className="input"
+                required
+                value={newCycleForm.calibrationDate}
+                onChange={(e) => setNewCycleForm({ ...newCycleForm, calibrationDate: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <Field label="Eligible Workforce Count">
+            <input
+              type="number"
+              className="input"
+              value={newCycleForm.totalEligibleEmployees}
+              onChange={(e) => setNewCycleForm({ ...newCycleForm, totalEligibleEmployees: Number(e.target.value) })}
+            />
+          </Field>
         </form>
       </Modal>
     </div>

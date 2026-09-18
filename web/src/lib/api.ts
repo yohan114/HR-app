@@ -2555,7 +2555,7 @@ export type AppraisalStatus =
   | 'ACKNOWLEDGED'
   | 'CLOSED'
 export type FeedbackType = 'PRAISE' | 'COACHING' | 'ONE_ON_ONE_NOTE' | 'CHECK_IN'
-export type MraRelationship = 'PEER' | 'SUBORDINATE' | 'STAKEHOLDER' | 'CROSS_FUNCTIONAL'
+export type MraRelationship = 'PEER' | 'MANAGER' | 'SUBORDINATE' | 'STAKEHOLDER' | 'CROSS_FUNCTIONAL'
 
 export interface GoalCheckInItem {
   id: string
@@ -2750,6 +2750,120 @@ export interface SendFeedbackRequest {
   sharedWithManager?: boolean
 }
 
+export type AppraisalCycleStatus =
+  | 'DRAFT'
+  | 'SELF_REVIEW'
+  | 'PEER_360'
+  | 'MANAGER_REVIEW'
+  | 'CALIBRATION'
+  | 'SIGN_OFF'
+  | 'CLOSED'
+
+export interface AppraisalCycleItem {
+  id: string
+  code: string
+  name: string
+  status: AppraisalCycleStatus
+  startDate: string
+  endDate: string
+  selfReviewDeadline: string
+  peerReviewDeadline: string
+  managerReviewDeadline: string
+  calibrationDate: string
+  totalEligibleEmployees: number
+  completedAppraisals: number
+  inProgressAppraisals: number
+}
+
+export interface MraReviewerNomination {
+  id: string
+  appraisalId: string
+  reviewerEmployeeId: string
+  reviewerEmployeeName: string
+  reviewerTitle: string
+  department: string
+  relationship: MraRelationship
+  status: 'PENDING' | 'COMPLETED' | 'DECLINED'
+  anonymous: boolean
+  invitedAt: string
+  submittedAt?: string
+}
+
+export interface MraCompetencyScore {
+  competencyId: string
+  code: string
+  name: string
+  groupName: string
+  targetLevel: number
+  selfScore: number
+  managerScore: number
+  peerScore: number
+  subordinateScore: number
+  crossFunctionalScore: number
+  overallScore: number
+  gap: number
+}
+
+export interface MraMatrixResponse {
+  appraisalId: string
+  employeeName: string
+  department: string
+  cycleName: string
+  nominations: MraReviewerNomination[]
+  competencies: MraCompetencyScore[]
+  strengths: string[]
+  developmentAreas: string[]
+}
+
+export interface RatingBandDistribution {
+  bandIndex: number
+  label: string
+  scoreRange: string
+  targetPercent: number
+  actualCount: number
+  actualPercent: number
+  variancePercent: number
+  tone: 'danger' | 'warning' | 'neutral' | 'success'
+}
+
+export interface RatingDistributionCurveResponse {
+  cycleId: string
+  cycleName: string
+  totalCalibrated: number
+  averageScore: number
+  bands: RatingBandDistribution[]
+  calibrationAlerts: string[]
+}
+
+export interface NineBoxEmployeeItem {
+  employeeId: string
+  employeeCode: string
+  fullName: string
+  designation: string
+  department: string
+  performanceScore: number
+  potentialLevel: 'LOW' | 'MEDIUM' | 'HIGH'
+  currentBoxKey: string
+  avatarInitials: string
+}
+
+export interface NineBoxCell {
+  boxKey: string
+  title: string
+  performance: 'LOW' | 'MEDIUM' | 'HIGH'
+  potential: 'LOW' | 'MEDIUM' | 'HIGH'
+  description: string
+  colorTone: string
+  employees: NineBoxEmployeeItem[]
+}
+
+export interface NineBoxMatrixResponse {
+  cycleId: string
+  cycleName: string
+  grid: NineBoxCell[]
+  totalEmployees: number
+}
+
 export const performanceApi = {
   async getGoals(params?: { employeeId?: string; cycleId?: string; status?: string }): Promise<GoalListResponse> {
     const search = new URLSearchParams()
@@ -2828,6 +2942,76 @@ export const performanceApi = {
     return apiFetch<ContinuousFeedbackItem>('/v1/performance/feedback', {
       method: 'POST',
       body: JSON.stringify(data),
+    })
+  },
+
+  async getAppraisalCycles(): Promise<{ cycles: AppraisalCycleItem[] }> {
+    return apiFetch<{ cycles: AppraisalCycleItem[] }>('/v1/performance/cycles')
+  },
+
+  async createAppraisalCycle(data: Partial<AppraisalCycleItem>): Promise<AppraisalCycleItem> {
+    return apiFetch<AppraisalCycleItem>('/v1/performance/cycles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async updateAppraisalCycleStatus(id: string, status: AppraisalCycleStatus): Promise<AppraisalCycleItem> {
+    return apiFetch<AppraisalCycleItem>(`/v1/performance/cycles/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    })
+  },
+
+  async get360ReviewRequests(appraisalId: string): Promise<{ requests: MraReviewerNomination[] }> {
+    return apiFetch<{ requests: MraReviewerNomination[] }>(`/v1/performance/appraisals/${appraisalId}/360-requests`)
+  },
+
+  async nominate360Reviewer(
+    appraisalId: string,
+    data: { reviewerEmployeeId: string; relationship: MraRelationship; anonymous: boolean },
+  ): Promise<MraReviewerNomination> {
+    return apiFetch<MraReviewerNomination>(`/v1/performance/appraisals/${appraisalId}/360-nominate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async get360Matrix(appraisalId: string): Promise<MraMatrixResponse> {
+    return apiFetch<MraMatrixResponse>(`/v1/performance/appraisals/${appraisalId}/360-matrix`)
+  },
+
+  async submit360Evaluation(
+    requestId: string,
+    data: {
+      overallStrengths: string
+      overallDevelopment: string
+      ratings: Array<{ competencyId: string; rating: number; comments?: string }>
+    },
+  ): Promise<{ success: boolean }> {
+    return apiFetch<{ success: boolean }>(`/v1/performance/360-requests/${requestId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getRatingDistribution(cycleId: string): Promise<RatingDistributionCurveResponse> {
+    return apiFetch<RatingDistributionCurveResponse>(`/v1/performance/cycles/${cycleId}/distribution-curve`)
+  },
+
+  async get9BoxMatrix(cycleId: string, department?: string): Promise<NineBoxMatrixResponse> {
+    const qs = department && department !== 'ALL' ? `?department=${encodeURIComponent(department)}` : ''
+    return apiFetch<NineBoxMatrixResponse>(`/v1/performance/cycles/${cycleId}/9-box${qs}`)
+  },
+
+  async update9BoxPosition(
+    cycleId: string,
+    employeeId: string,
+    data: { potentialLevel: 'LOW' | 'MEDIUM' | 'HIGH'; performanceScore?: number },
+  ): Promise<{ success: boolean }> {
+    return apiFetch<{ success: boolean }>(`/v1/performance/cycles/${cycleId}/9-box/calibrate`, {
+      method: 'POST',
+      body: JSON.stringify({ employeeId, ...data }),
     })
   },
 }
