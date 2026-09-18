@@ -978,6 +978,103 @@ export interface T10CertificateData {
   }
 }
 
+export interface PayslipCompanyInfo {
+  legalName: string
+  tradingName: string
+  registrationNumber: string
+  taxIdentificationNumber: string
+  epfEmployerNumber: string
+  etfEmployerNumber: string
+  registeredAddress: string
+  cityCountry: string
+  contactPhone: string
+  contactEmail: string
+  website: string
+  currency: string
+}
+
+export interface PayslipEmployeeInfo {
+  employeeId: string
+  employeeCode: string
+  fullName: string
+  designation: string
+  department: string
+  dateOfJoining: string
+  nicPassportNumber: string
+  epfMemberNumber: string
+  bankName: string
+  bankBranch: string
+  bankAccountNumberMasked: string
+  paymentMethod: string
+}
+
+export interface PayslipPeriodInfo {
+  payPeriodCode: string
+  payPeriodName: string
+  startDate: string
+  endDate: string
+  paymentDate: string
+  payrollRunId: string
+  payrollStatus: string
+}
+
+export interface PayslipLineItem {
+  id: string
+  category: 'EARNING' | 'STATUTORY_DEDUCTION' | 'VOLUNTARY_DEDUCTION' | 'TAX' | 'EMPLOYER_CONTRIBUTION'
+  code: string
+  description: string
+  amount: number
+  isStatutory: boolean
+  calculationTrace?: string
+}
+
+export interface PayslipTotals {
+  basicSalary: number
+  allowancesTotal: number
+  overtimeTotal: number
+  grossEarnings: number
+  statutoryEmployeeEpf: number
+  apitTaxWithheld: number
+  voluntaryDeductionsTotal: number
+  totalDeductions: number
+  netPay: number
+  netPayInWords: string
+  employerEpf: number
+  employerEtf: number
+  totalEmployerContributions: number
+  totalCostToCompany: number
+}
+
+export interface PayslipYtd {
+  ytdGrossPay: number
+  ytdTaxWithheld: number
+  ytdEmployeeEpf: number
+  ytdEmployerEpf: number
+  ytdNetPay: number
+}
+
+export interface PayslipSecurity {
+  confidentialWatermark: string
+  verificationHash: string
+  verificationUrl: string
+  qrCodeSvg: string
+  generatedAt: string
+  authorizedSignatory: string
+  signatoryTitle: string
+}
+
+export interface PayslipDocument {
+  id: string
+  company: PayslipCompanyInfo
+  employee: PayslipEmployeeInfo
+  period: PayslipPeriodInfo
+  earnings: PayslipLineItem[]
+  deductions: PayslipLineItem[]
+  totals: PayslipTotals
+  ytd: PayslipYtd
+  security: PayslipSecurity
+}
+
 export const payrollApi = {
   async listPayGroups(): Promise<{ payGroups: PayGroup[] }> {
     return apiFetch<{ payGroups: PayGroup[] }>('/v1/payroll/pay-groups')
@@ -1071,6 +1168,15 @@ export const payrollApi = {
     return apiFetch<T10CertificateData>(
       `/v1/payroll/runs/${runId}/statutory/t10-certificate/${employeeId}${qs}`,
     )
+  },
+
+  async getPayslipDocument(runId: string, resultId: string): Promise<PayslipDocument> {
+    return apiFetch<PayslipDocument>(`/v1/payroll/runs/${runId}/results/${resultId}/payslip`)
+  },
+
+  async getPayslipBatch(runId: string, department?: string): Promise<{ payslips: PayslipDocument[] }> {
+    const qs = department && department !== 'ALL' ? `?department=${encodeURIComponent(department)}` : ''
+    return apiFetch<{ payslips: PayslipDocument[] }>(`/v1/payroll/runs/${runId}/payslips/batch${qs}`)
   },
 }
 

@@ -1950,6 +1950,8 @@ export function buildRouter(world: World): Router {
     .on('GET', '/v1/payroll/runs/:id/statutory/epf-cform', (request) => getEpfCFormSchedule(world, request))
     .on('GET', '/v1/payroll/runs/:id/statutory/etf-schedule', (request) => getEtfRemittanceSchedule(world, request))
     .on('GET', '/v1/payroll/runs/:id/statutory/t10-certificate/:employeeId', (request) => getEmployeeT10Certificate(world, request))
+    .on('GET', '/v1/payroll/runs/:id/results/:resultId/payslip', (request) => getPayslipDocument(world, request))
+    .on('GET', '/v1/payroll/runs/:id/payslips/batch', (request) => getPayslipBatch(world, request))
 
     // Attendance & Shift Roster (P2-BE / P2-WEB)
     .on('GET', '/v1/attendance/shifts', (request) => listShifts(world, request))
@@ -2674,6 +2676,364 @@ function getEmployeeT10Certificate(world: World, request: DemoRequest): DemoRepl
       },
     },
   }
+}
+
+function numberToWordsLKR(amount: number): string {
+  const singleDigits = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine']
+  const teens = [
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ]
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
+
+  function convertChunk(n: number): string {
+    let str = ''
+    if (n >= 100) {
+      str += singleDigits[Math.floor(n / 100)] + ' Hundred '
+      n %= 100
+    }
+    if (n >= 10 && n <= 19) {
+      str += teens[n - 10] + ' '
+    } else if (n >= 20) {
+      str += tens[Math.floor(n / 10)] + ' '
+      if (n % 10 > 0) {
+        str += singleDigits[n % 10] + ' '
+      }
+    } else if (n > 0) {
+      str += singleDigits[n] + ' '
+    }
+    return str.trim()
+  }
+
+  const integerPart = Math.floor(Math.abs(amount))
+  const cents = Math.round((Math.abs(amount) - integerPart) * 100)
+
+  if (integerPart === 0 && cents === 0) {
+    return 'Zero Sri Lankan Rupees Only'
+  }
+
+  let result = ''
+  const billions = Math.floor(integerPart / 1_000_000_000)
+  const millions = Math.floor((integerPart % 1_000_000_000) / 1_000_000)
+  const thousands = Math.floor((integerPart % 1_000_000) / 1_000)
+  const remainder = integerPart % 1_000
+
+  if (billions > 0) result += convertChunk(billions) + ' Billion '
+  if (millions > 0) result += convertChunk(millions) + ' Million '
+  if (thousands > 0) result += convertChunk(thousands) + ' Thousand '
+  if (remainder > 0) result += convertChunk(remainder) + ' '
+
+  result = result.trim() + ' Sri Lankan Rupees'
+  if (cents > 0) {
+    result += ` and ${convertChunk(cents)} Cents`
+  }
+  return result + ' Only'
+}
+
+function generateSvgQrCode(hash: string): string {
+  const size = 25
+  const grid: boolean[][] = []
+  for (let r = 0; r < size; r++) {
+    const row: boolean[] = []
+    for (let c = 0; c < size; c++) {
+      row.push(false)
+    }
+    grid.push(row)
+  }
+
+  function drawFinder(r: number, c: number) {
+    for (let i = 0; i < 7; i++) {
+      for (let j = 0; j < 7; j++) {
+        if (i === 0 || i === 6 || j === 0 || j === 6 || (i >= 2 && i <= 4 && j >= 2 && j <= 4)) {
+          const row = grid[r + i]
+          if (row) row[c + j] = true
+        }
+      }
+    }
+  }
+
+  drawFinder(0, 0)
+  drawFinder(0, size - 7)
+  drawFinder(size - 7, 0)
+
+  for (let i = 8; i < size - 8; i++) {
+    if (i % 2 === 0) {
+      const row6 = grid[6]
+      if (row6) row6[i] = true
+      const rowI = grid[i]
+      if (rowI) rowI[6] = true
+    }
+  }
+
+  let hashIdx = 0
+  for (let r = 0; r < size; r++) {
+    const row = grid[r]
+    if (!row) continue
+    for (let c = 0; c < size; c++) {
+      const inFinder1 = r < 8 && c < 8
+      const inFinder2 = r < 8 && c >= size - 8
+      const inFinder3 = r >= size - 8 && c < 8
+      if (!inFinder1 && !inFinder2 && !inFinder3 && row[c] === false) {
+        const charCode = hash.charCodeAt(hashIdx % hash.length)
+        row[c] = (charCode + r * 7 + c * 13) % 3 === 0
+        hashIdx++
+      }
+    }
+  }
+
+  const rects: string[] = []
+  for (let r = 0; r < size; r++) {
+    const row = grid[r]
+    if (!row) continue
+    for (let c = 0; c < size; c++) {
+      if (row[c]) {
+        rects.push(`<rect x="${c * 4}" y="${r * 4}" width="4" height="4" fill="#0f172a" />`)
+      }
+    }
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size * 4} ${size * 4}" width="90" height="90"><rect width="${size * 4}" height="${size * 4}" fill="#ffffff"/>${rects.join('')}</svg>`
+}
+
+function buildPayslipDocument(world: World, runId: string, resultId: string) {
+  const run = world.payrollRuns.get(runId)
+  if (!run) throw notFound('Payroll run not found')
+
+  const results = world.payrollResultsByRun.get(runId) ?? []
+  const result = results.find((r) => r.id === resultId || r.employeeId === resultId || r.employeeCode === resultId)
+  if (!result) throw notFound('Employee payroll result not found')
+
+  const employeeIndex = Array.from(world.employees.values()).findIndex((e) => e.id === result.employeeId)
+  const emp = world.employees.get(result.employeeId)
+  const idx = employeeIndex >= 0 ? employeeIndex : 0
+
+  const period = world.payPeriods.get(run.payPeriodId)
+  const rawLines = world.payrollLinesByResult.get(result.id) ?? []
+
+  let earnings = rawLines.filter((l) => l.lineCategory === 'EARNING')
+  let deductions = rawLines.filter(
+    (l) =>
+      l.lineCategory === 'STATUTORY_DEDUCTION' ||
+      l.lineCategory === 'VOLUNTARY_DEDUCTION' ||
+      l.lineCategory === 'TAX',
+  )
+
+  if (earnings.length === 0) {
+    const allowance = Math.max(0, result.grossPay - result.basicSalary)
+    earnings = [
+      {
+        id: `earn-basic-${result.id}`,
+        payrollResultId: result.id,
+        lineCategory: 'EARNING',
+        itemCode: 'BASIC',
+        itemName: 'Basic Salary',
+        amount: result.basicSalary,
+        isStatutory: true,
+        calculationTrace: 'Standard base pay contract tier',
+      },
+    ]
+    if (allowance > 0) {
+      earnings.push({
+        id: `earn-allow-${result.id}`,
+        payrollResultId: result.id,
+        lineCategory: 'EARNING',
+        itemCode: 'FIXED_ALLOW',
+        itemName: 'Fixed Operational & Transport Allowance',
+        amount: allowance,
+        isStatutory: false,
+        calculationTrace: 'Monthly executive allowance entitlement',
+      })
+    }
+  }
+
+  if (deductions.length === 0) {
+    deductions = []
+    if (result.totalStatutoryEmployee > 0) {
+      deductions.push({
+        id: `ded-epf-${result.id}`,
+        payrollResultId: result.id,
+        lineCategory: 'STATUTORY_DEDUCTION',
+        itemCode: 'EPF_EE_8',
+        itemName: 'Employees Provident Fund (EPF 8%)',
+        amount: result.totalStatutoryEmployee,
+        isStatutory: true,
+        calculationTrace: '8% statutory employee pension contribution',
+      })
+    }
+    if (result.taxWithheld > 0) {
+      deductions.push({
+        id: `ded-tax-${result.id}`,
+        payrollResultId: result.id,
+        lineCategory: 'TAX',
+        itemCode: 'APIT_TAX',
+        itemName: 'Advance Personal Income Tax (APIT/PAYE)',
+        amount: result.taxWithheld,
+        isStatutory: true,
+        calculationTrace: 'Inland Revenue Act No. 24 of 2017 monthly bracket deduction',
+      })
+    }
+    if (result.totalVoluntaryDeductions > 0) {
+      deductions.push({
+        id: `ded-vol-${result.id}`,
+        payrollResultId: result.id,
+        lineCategory: 'VOLUNTARY_DEDUCTION',
+        itemCode: 'WELFARE',
+        itemName: 'Staff Welfare Association & Benevolent Fund',
+        amount: result.totalVoluntaryDeductions,
+        isStatutory: false,
+        calculationTrace: 'Voluntary monthly welfare payroll deduction authorization',
+      })
+    }
+  }
+
+  const employerEpf =
+    result.totalStatutoryEmployer > 0
+      ? Math.round((result.totalStatutoryEmployer * 12 / 15) * 100) / 100
+      : Math.round(result.basicSalary * 0.12 * 100) / 100
+  const employerEtf =
+    result.totalStatutoryEmployer > 0
+      ? Math.round((result.totalStatutoryEmployer * 3 / 15) * 100) / 100
+      : Math.round(result.basicSalary * 0.03 * 100) / 100
+  const totalEmployerContributions = Math.round((employerEpf + employerEtf) * 100) / 100
+  const totalCostToCompany = Math.round((result.grossPay + totalEmployerContributions) * 100) / 100
+
+  const epfNo = (emp?.customFields?.epfNumber as string) || `A/${12000 + idx}`
+  const nic = getEmployeeNic(emp, idx)
+  const bankAccountMasked = `•••• •••• ${String(1100 + idx * 77).slice(-4)}`
+
+  const hashContent = `${result.employeeCode}:${result.netPay}:${run.id}:${period?.code || '2026-03'}`
+  let rawHash = 0
+  for (let i = 0; i < hashContent.length; i++) {
+    rawHash = (rawHash << 5) - rawHash + hashContent.charCodeAt(i)
+    rawHash |= 0
+  }
+  const verificationHash = `SEC-${Math.abs(rawHash).toString(16).toUpperCase().padStart(8, '0')}-SHA256-${result.employeeCode}`
+  const verificationUrl = `https://hr.company.internal/verify/payslip/${verificationHash}`
+  const qrCodeSvg = generateSvgQrCode(verificationHash)
+
+  return {
+    id: `ps-${run.id}-${result.id}`,
+    company: {
+      legalName: 'Antigravity Global Technologies (Pvt) Ltd',
+      tradingName: 'Antigravity Enterprise HR',
+      registrationNumber: 'PV-00289192',
+      taxIdentificationNumber: '109283741-0000',
+      epfEmployerNumber: 'E/10948',
+      etfEmployerNumber: 'ETF/88492',
+      registeredAddress: 'Level 14, West Tower, World Trade Center, Echelon Square',
+      cityCountry: 'Colombo 01, Sri Lanka',
+      contactPhone: '+94 11 234 5678',
+      contactEmail: 'payroll@company.com',
+      website: 'www.antigravity.company',
+      currency: 'LKR',
+    },
+    employee: {
+      employeeId: result.employeeId,
+      employeeCode: result.employeeCode,
+      fullName: result.employeeName,
+      designation: result.designation,
+      department: result.department,
+      dateOfJoining: '2022-04-15',
+      nicPassportNumber: nic,
+      epfMemberNumber: epfNo,
+      bankName: 'Commercial Bank of Ceylon PLC',
+      bankBranch: 'Colombo Main Branch (001)',
+      bankAccountNumberMasked: bankAccountMasked,
+      paymentMethod: 'Electronic Bank Transfer (SLIPS/ACH)',
+    },
+    period: {
+      payPeriodCode: period?.code || 'period-2026-03',
+      payPeriodName: period?.code ? `March 2026 Monthly Cycle` : 'March 2026 Monthly Cycle',
+      startDate: period?.startDate || '2026-03-01',
+      endDate: period?.endDate || '2026-03-31',
+      paymentDate: period?.paymentDate || '2026-03-25',
+      payrollRunId: run.id,
+      payrollStatus: result.paymentStatus,
+    },
+    earnings: earnings.map((e) => ({
+      id: e.id,
+      category: e.lineCategory,
+      code: e.itemCode,
+      description: e.itemName,
+      amount: e.amount,
+      isStatutory: e.isStatutory,
+      calculationTrace: e.calculationTrace,
+    })),
+    deductions: deductions.map((d) => ({
+      id: d.id,
+      category: d.lineCategory,
+      code: d.itemCode,
+      description: d.itemName,
+      amount: d.amount,
+      isStatutory: d.isStatutory,
+      calculationTrace: d.calculationTrace,
+    })),
+    totals: {
+      basicSalary: result.basicSalary,
+      allowancesTotal: Math.max(0, result.grossPay - result.basicSalary),
+      overtimeTotal: earnings.find((e) => e.itemCode.includes('OT'))?.amount || 0,
+      grossEarnings: result.grossPay,
+      statutoryEmployeeEpf: result.totalStatutoryEmployee,
+      apitTaxWithheld: result.taxWithheld,
+      voluntaryDeductionsTotal: result.totalVoluntaryDeductions,
+      totalDeductions: result.totalStatutoryEmployee + result.taxWithheld + result.totalVoluntaryDeductions,
+      netPay: result.netPay,
+      netPayInWords: numberToWordsLKR(result.netPay),
+      employerEpf,
+      employerEtf,
+      totalEmployerContributions,
+      totalCostToCompany,
+    },
+    ytd: {
+      ytdGrossPay: Math.round(result.grossPay * 3 * 100) / 100,
+      ytdTaxWithheld: Math.round(result.taxWithheld * 3 * 100) / 100,
+      ytdEmployeeEpf: Math.round(result.totalStatutoryEmployee * 3 * 100) / 100,
+      ytdEmployerEpf: Math.round(employerEpf * 3 * 100) / 100,
+      ytdNetPay: Math.round(result.netPay * 3 * 100) / 100,
+    },
+    security: {
+      confidentialWatermark: 'CONFIDENTIAL · STRICTLY PRIVATE & PERSONAL',
+      verificationHash,
+      verificationUrl,
+      qrCodeSvg,
+      generatedAt: new Date().toISOString(),
+      authorizedSignatory: 'Anusha Sivakumar',
+      signatoryTitle: 'Head of Finance & Compliance',
+    },
+  }
+}
+
+function getPayslipDocument(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
+  const runId = pathParam(request, 'id')
+  const resultId = pathParam(request, 'resultId')
+  const payslip = buildPayslipDocument(world, runId, resultId)
+  return { status: 200, body: payslip }
+}
+
+function getPayslipBatch(world: World, request: DemoRequest): DemoReply {
+  const { caller } = authenticate(world, request)
+  requirePermission(caller, 'payroll.view')
+  const runId = pathParam(request, 'id')
+  const department = request.query.get('department')
+  const results = world.payrollResultsByRun.get(runId) ?? []
+
+  let filtered = results
+  if (department && department !== 'ALL') {
+    filtered = filtered.filter((r) => r.department === department)
+  }
+
+  const payslips = filtered.map((r) => buildPayslipDocument(world, runId, r.id))
+  return { status: 200, body: { payslips } }
 }
 
 /* -------------------------------------------------------------------------- */

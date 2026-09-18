@@ -23,6 +23,8 @@ import {
   type PayrollResultLine,
   type T10CertificateData,
 } from '@/lib/api'
+import { OfficialPayslipModal } from '@/components/payslip/OfficialPayslipModal'
+import { BatchPayslipsPrintModal } from '@/components/payslip/BatchPayslipsPrintModal'
 
 export function Payroll() {
   const queryClient = useQueryClient()
@@ -83,6 +85,8 @@ export function Payroll() {
   // Payslip Inspector Drawer State
   // -------------------------------------------------------------------------
   const [inspectingResultId, setInspectingResultId] = useState<string | null>(null)
+  const [selectedOfficialPayslipResultId, setSelectedOfficialPayslipResultId] = useState<string | null>(null)
+  const [isBatchPayslipsModalOpen, setIsBatchPayslipsModalOpen] = useState(false)
 
   const payslipDetailsQuery = useQuery({
     queryKey: ['payroll', 'result-details', activeRun?.id, inspectingResultId],
@@ -716,9 +720,19 @@ export function Payroll() {
               </select>
             </div>
 
-            <span style={{ fontSize: '0.8125rem', color: 'var(--color-on-surface-muted)' }}>
-              Showing {resultsQuery.data?.results.length ?? 0} payslip records
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-on-surface-muted)' }}>
+                Showing {resultsQuery.data?.results.length ?? 0} payslip records
+              </span>
+              <Button
+                variant="secondary"
+                style={{ minHeight: '34px', fontSize: '0.8125rem' }}
+                onClick={() => setIsBatchPayslipsModalOpen(true)}
+                disabled={!activeRun?.id || (resultsQuery.data?.results.length ?? 0) === 0}
+              >
+                🖨️ Batch Export Payslips ({resultsQuery.data?.results.length ?? 0})
+              </Button>
+            </div>
           </div>
 
           {resultsQuery.isPending && <LoadingState label="Loading employee pay results…" />}
@@ -817,13 +831,22 @@ export function Payroll() {
                 {
                   header: 'Action',
                   render: (r) => (
-                    <Button
-                      variant="ghost"
-                      style={{ padding: '0 0.5rem', minHeight: '32px', fontSize: '0.8125rem' }}
-                      onClick={() => setInspectingResultId(r.id)}
-                    >
-                      Inspect
-                    </Button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                      <Button
+                        variant="secondary"
+                        style={{ padding: '0 0.5rem', minHeight: '32px', fontSize: '0.8125rem' }}
+                        onClick={() => setSelectedOfficialPayslipResultId(r.id)}
+                      >
+                        📄 Payslip
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        style={{ padding: '0 0.5rem', minHeight: '32px', fontSize: '0.8125rem' }}
+                        onClick={() => setInspectingResultId(r.id)}
+                      >
+                        Inspect
+                      </Button>
+                    </div>
                   ),
                 },
               ]}
@@ -859,6 +882,14 @@ export function Payroll() {
 
         {payslipDetailsQuery.data && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <Button
+              variant="primary"
+              style={{ width: '100%' }}
+              onClick={() => setSelectedOfficialPayslipResultId(inspectingResultId)}
+            >
+              📄 Open Official PDF Payslip Document
+            </Button>
+
             {/* Header info */}
             <div
               style={{
@@ -2176,6 +2207,34 @@ export function Payroll() {
           )}
         </div>
       </Modal>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* Official Single Payslip Modal with Watermark & Digital Seal           */}
+      {/* --------------------------------------------------------------------- */}
+      {activeRun && selectedOfficialPayslipResultId && (
+        <OfficialPayslipModal
+          isOpen={Boolean(selectedOfficialPayslipResultId)}
+          onClose={() => setSelectedOfficialPayslipResultId(null)}
+          runId={activeRun.id}
+          resultId={selectedOfficialPayslipResultId}
+          allResultIds={resultsQuery.data?.results.map((r) => r.id) ?? []}
+          onSelectResultId={(id) => setSelectedOfficialPayslipResultId(id)}
+        />
+      )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* Batch Continuous Payslips Print Modal                                 */}
+      {/* --------------------------------------------------------------------- */}
+      {activeRun && (
+        <BatchPayslipsPrintModal
+          isOpen={isBatchPayslipsModalOpen}
+          onClose={() => setIsBatchPayslipsModalOpen(false)}
+          runId={activeRun.id}
+          payPeriodName={
+            payPeriodsQuery.data?.payPeriods.find((p) => p.id === selectedPayPeriodId)?.code || 'March 2026'
+          }
+        />
+      )}
     </div>
   )
 }
