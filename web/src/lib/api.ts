@@ -1535,6 +1535,32 @@ export const attendanceApi = {
     const qs = kioskDeviceId ? `?deviceId=${encodeURIComponent(kioskDeviceId)}` : ''
     return apiFetch<{ punches: RawPunchItem[] }>(`/v1/attendance/kiosk/recent-punches${qs}`)
   },
+
+  async listBadges(): Promise<{ badges: EmployeeBadgeItem[] }> {
+    return apiFetch<{ badges: EmployeeBadgeItem[] }>('/v1/attendance/badges')
+  },
+
+  async getEmployeeBadge(employeeCodeOrId: string): Promise<EmployeeBadgeItem> {
+    return apiFetch<EmployeeBadgeItem>(`/v1/attendance/badges/${encodeURIComponent(employeeCodeOrId)}`)
+  },
+}
+
+export interface EmployeeBadgeItem {
+  employeeId: string
+  employeeCode: string
+  fullName: string
+  department: string
+  designation: string
+  nfcSerial: string
+  barcode: string
+  qrPayload: string
+  issueDate: string
+  expiryDate: string
+  cardType: 'STANDARD' | 'CONTRACTOR' | 'EXECUTIVE' | 'SECURITY'
+  status: 'ACTIVE' | 'SUSPENDED' | 'REVOKED'
+  avatarInitials: string
+  bloodGroup?: string
+  emergencyContact?: string
 }
 
 export interface KioskEmployeeStatus {

@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { DirectoryEntry } from '@hr/client'
-import { attendanceApi, directoryApi, type PunchType, type RawPunchItem } from '@/lib/api'
+import { attendanceApi, directoryApi, type PunchType, type RawPunchItem, type EmployeeBadgeItem } from '@/lib/api'
+import { EmployeeBadgeModal } from '@/components/kiosk/EmployeeBadgeModal'
+import { parseBadgePayload } from '@/lib/qrcode'
 
 // Subtle web audio sound effects for tactile kiosk experience
 function playBeep(type: 'tap' | 'success' | 'error') {
@@ -118,6 +120,12 @@ export function AttendanceKiosk() {
     queryKey: ['kiosk', 'recent-punches', kioskDeviceId],
     queryFn: () => attendanceApi.listKioskRecentPunches(kioskDeviceId),
     refetchInterval: 6000,
+  })
+
+  // Badges list for ID badge cards and scanner simulations
+  const badgesQuery = useQuery({
+    queryKey: ['kiosk', 'badges'],
+    queryFn: () => attendanceApi.listBadges(),
   })
 
   // ---------------------------------------------------------------------------
@@ -288,6 +296,196 @@ export function AttendanceKiosk() {
     },
   })
 
+  // ---------------------------------------------------------------------------
+  // Touchless Badge Scanner & 1-Second Auto-Punch Engine
+  // ---------------------------------------------------------------------------
+  const [autoPunchEnabled, setAutoPunchEnabled] = useState(true)
+  const [isBadgeModalOpen, setIsBadgeModalOpen] = useState(false)
+  const [badgeModalCode, setBadgeModalCode] = useState('E004')
+  const [lastScanNotice, setLastScanNotice] = useState<{
+    code: string
+    source: string
+    time: string
+    action?: string
+  } | null>(null)
+  const [nfcSupported, setNfcSupported] = useState(false)
+  const [nfcReading, setNfcReading] = useState(false)
+  const lastScannedTimeRef = useRef<{ code: string; time: number }>({ code: '', time: 0 })
+
+  const handleBadgeScanned = useCallback(
+    async (code: string, rawPin?: string, source: string = 'CAMERA QR') => {
+      const cleanCode = code.trim().toUpperCase()
+      const now = Date.now()
+      // Debounce duplicate scans within 2 seconds
+      if (
+        lastScannedTimeRef.current.code === cleanCode &&
+        now - lastScannedTimeRef.current.time < 2000
+      ) {
+        return
+      }
+      lastScannedTimeRef.current = { code: cleanCode, time: now }
+
+      playBeep('tap')
+      setEmployeeCode(cleanCode)
+      setPin(rawPin || '1234')
+      setLastScanNotice({
+        code: cleanCode,
+        source,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        action: autoPunchEnabled ? '⚡ 1-Sec Auto-Punch' : 'Badge Verified',
+      })
+
+      if (autoPunchEnabled) {
+        setErrorMessage(null)
+        try {
+          // Fetch employee current status to determine IN vs OUT
+          const status = await attendanceApi.getKioskEmployeeStatus(cleanCode)
+          const suggestedType: PunchType = status.currentStatus?.isClockedIn ? 'OUT' : 'IN'
+          const photoSnapshot = captureSnapshot()
+
+          const resp = await attendanceApi.submitKioskPunch({
+            employeeCode: cleanCode,
+            pin: rawPin || 'AUTO_PUNCH',
+            punchType: suggestedType,
+            kioskDeviceId,
+            kioskLocation,
+            photoSnapshot,
+          })
+
+          playBeep('success')
+          setPunchFeedback({
+            confirmationId: resp.confirmationId,
+            employeeName: resp.employee.name,
+            employeeCode: resp.employee.code,
+            department: resp.employee.department,
+            punchType: resp.punchType,
+            punchedAt: resp.punchedAt,
+            greeting: resp.greeting,
+            snapshot: photoSnapshot,
+            shiftName: resp.shiftName,
+          })
+          void queryClient.invalidateQueries({ queryKey: ['kiosk'] })
+          void queryClient.invalidateQueries({ queryKey: ['attendance'] })
+        } catch (err: any) {
+          playBeep('error')
+          setErrorMessage(err.message || `Auto-Punch failed for badge ${cleanCode}`)
+        }
+      }
+    },
+    [autoPunchEnabled, captureSnapshot, kioskDeviceId, kioskLocation, queryClient],
+  )
+
+  // 1. Continuous Camera Viewfinder QR / Barcode Detector Loop
+  useEffect(() => {
+    if (!cameraActive || !videoRef.current) return
+    let isCancelled = false
+
+    const detectLoop = async () => {
+      if (isCancelled || !videoRef.current) return
+      if ('BarcodeDetector' in window) {
+        try {
+          const detector = new (window as any).BarcodeDetector({
+            formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'data_matrix'],
+          })
+          const barcodes = await detector.detect(videoRef.current)
+          if (barcodes && barcodes.length > 0) {
+            const raw = barcodes[0].rawValue
+            const parsed = parseBadgePayload(raw)
+            if (parsed) {
+              void handleBadgeScanned(parsed.employeeCode, parsed.pin, 'CAMERA QR')
+            }
+          }
+        } catch {
+          // Frame not ready or detector busy
+        }
+      }
+    }
+
+    const interval = setInterval(detectLoop, 350)
+    return () => {
+      isCancelled = true
+      clearInterval(interval)
+    }
+  }, [cameraActive, handleBadgeScanned])
+
+  // 2. Web NFC Contactless Reader (Android Chrome / Kiosk Tablets)
+  useEffect(() => {
+    if ('NDEFReader' in window) {
+      setNfcSupported(true)
+      try {
+        const ndef = new (window as any).NDEFReader()
+        ndef
+          .scan()
+          .then(() => {
+            setNfcReading(true)
+            ndef.onreading = (event: any) => {
+              let textPayload = ''
+              if (event.message?.records) {
+                for (const record of event.message.records) {
+                  if (record.recordType === 'text') {
+                    const decoder = new TextDecoder(record.encoding || 'utf-8')
+                    textPayload = decoder.decode(record.data)
+                  }
+                }
+              }
+              const parsed = parseBadgePayload(textPayload || event.serialNumber)
+              if (parsed) {
+                void handleBadgeScanned(parsed.employeeCode, parsed.pin, 'NFC TAP')
+              }
+            }
+          })
+          .catch(() => {
+            setNfcReading(false)
+          })
+      } catch {
+        // NDEF not supported in current environment
+      }
+    }
+  }, [handleBadgeScanned])
+
+  // 3. Hardware USB Barcode / QR Wedge Scanner (Fast Keystroke Burst Listener)
+  useEffect(() => {
+    let keyBuffer = ''
+    let lastKeyTime = Date.now()
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is currently typing in an input element
+      const activeEl = document.activeElement
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return
+      }
+
+      const now = Date.now()
+      const delta = now - lastKeyTime
+      lastKeyTime = now
+
+      if (e.key === 'Enter') {
+        if (keyBuffer.length >= 3) {
+          e.preventDefault()
+          const parsed = parseBadgePayload(keyBuffer)
+          if (parsed) {
+            void handleBadgeScanned(parsed.employeeCode, parsed.pin, 'USB WEDGE')
+          }
+        }
+        keyBuffer = ''
+        return
+      }
+
+      if (e.key.length === 1) {
+        if (delta > 120) {
+          // Slow typing, reset buffer
+          keyBuffer = e.key
+        } else {
+          // Rapid hardware wedge stream
+          keyBuffer += e.key
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleBadgeScanned])
+
   // Preset quick workers for fast kiosk testing
   const quickWorkers = [
     { code: 'E004', name: 'Kasun Fernando', dept: 'Engineering', shift: '08:30 - 17:30' },
@@ -352,7 +550,7 @@ export function AttendanceKiosk() {
             <div style={{ fontWeight: 800, fontSize: '1.125rem', letterSpacing: '-0.01em' }}>
               ATTENDANCE KIOSK STATION
             </div>
-            <div style={{ fontSize: '0.8125rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ fontSize: '0.8125rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <span
                 style={{
                   width: '8px',
@@ -364,6 +562,23 @@ export function AttendanceKiosk() {
                 }}
               />
               <span>{kioskDeviceId}</span> · <span>{kioskLocation}</span>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'rgba(56, 189, 248, 0.12)',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  padding: '2px 8px',
+                  borderRadius: '999px',
+                  fontSize: '0.6875rem',
+                  color: '#38bdf8',
+                  fontWeight: 600,
+                }}
+              >
+                <span>🛜</span>
+                <span>{nfcReading ? 'NFC SENSOR READY' : 'NFC CONTACTLESS'}</span>
+              </span>
             </div>
           </div>
         </div>
@@ -388,12 +603,67 @@ export function AttendanceKiosk() {
         </div>
 
         {/* Kiosk Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
+          {/* 1-Sec Auto-Punch Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              playBeep('tap')
+              setAutoPunchEnabled((prev) => !prev)
+            }}
+            style={{
+              padding: '0.5rem 0.875rem',
+              background: autoPunchEnabled
+                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.35) 100%)'
+                : 'rgba(255, 255, 255, 0.08)',
+              border: `1px solid ${autoPunchEnabled ? '#10b981' : 'rgba(255, 255, 255, 0.15)'}`,
+              borderRadius: '8px',
+              color: autoPunchEnabled ? '#34d399' : '#94a3b8',
+              fontSize: '0.8125rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+            }}
+            title="Automatically executes clock in/out immediately when badge is detected"
+          >
+            <span style={{ fontSize: '0.9rem' }}>⚡</span>
+            <span>{autoPunchEnabled ? 'Auto-Punch: ON (1s)' : 'Auto-Punch: OFF'}</span>
+          </button>
+
+          {/* ID Badges & Print Modal Button */}
+          <button
+            type="button"
+            onClick={() => {
+              playBeep('tap')
+              setBadgeModalCode(employeeCode || 'E004')
+              setIsBadgeModalOpen(true)
+            }}
+            style={{
+              padding: '0.5rem 0.875rem',
+              background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+              border: 'none',
+              borderRadius: '8px',
+              color: '#ffffff',
+              fontSize: '0.8125rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              boxShadow: '0 2px 8px rgba(37, 99, 235, 0.35)',
+            }}
+          >
+            <span>🪪</span>
+            <span>ID Badges & Print</span>
+          </button>
+
           <button
             type="button"
             onClick={toggleFullscreen}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.5rem 0.875rem',
               background: 'rgba(255, 255, 255, 0.08)',
               border: '1px solid rgba(255, 255, 255, 0.15)',
               borderRadius: '8px',
@@ -403,12 +673,12 @@ export function AttendanceKiosk() {
               cursor: 'pointer',
             }}
           >
-            {isFullscreen ? 'Exit Fullscreen' : '⛶ Fullscreen Kiosk'}
+            {isFullscreen ? 'Exit Fullscreen' : '⛶ Fullscreen'}
           </button>
           <Link
             to="/attendance"
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.5rem 0.875rem',
               background: 'rgba(255, 255, 255, 0.05)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '8px',
@@ -868,19 +1138,20 @@ export function AttendanceKiosk() {
             </div>
           )}
 
-          {/* Center Section: Webcam Viewfinder Box */}
+          {/* Center Section: Webcam Viewfinder Box & QR / Barcode Scanner */}
           <div
             style={{
               position: 'relative',
               width: '100%',
-              height: '240px',
+              height: '250px',
               background: '#020617',
-              borderRadius: '12px',
+              borderRadius: '14px',
               overflow: 'hidden',
-              border: '2px solid rgba(255, 255, 255, 0.1)',
+              border: '2px solid rgba(56, 189, 248, 0.3)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              boxShadow: '0 0 20px rgba(56, 189, 248, 0.1)',
             }}
           >
             <video
@@ -912,51 +1183,229 @@ export function AttendanceKiosk() {
                   Camera Viewfinder Ready
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                  Snapshot is automatically captured upon punch
+                  Hold QR Badge 15cm from lens or tap NFC badge
                 </div>
               </div>
             )}
 
-            {/* Facial alignment oval framing guide */}
+            {/* Viewfinder Top HUD Bar */}
             <div
               style={{
                 position: 'absolute',
-                width: '140px',
-                height: '180px',
-                border: '2px dashed rgba(56, 189, 248, 0.6)',
-                borderRadius: '50%',
+                top: '10px',
+                left: '12px',
+                right: '12px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
                 pointerEvents: 'none',
-                boxShadow: '0 0 16px rgba(56, 189, 248, 0.15)',
+                zIndex: 5,
               }}
-            />
+            >
+              <div
+                style={{
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  backdropFilter: 'blur(6px)',
+                  padding: '3px 10px',
+                  borderRadius: '6px',
+                  fontSize: '0.7rem',
+                  color: '#38bdf8',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                }}
+              >
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: '#38bdf8',
+                    boxShadow: '0 0 8px #38bdf8',
+                  }}
+                />
+                <span>QR SCANNER & NFC TOUCHLESS ZONE</span>
+              </div>
 
-            {/* Camera Status Badge */}
+              {autoPunchEnabled && (
+                <div
+                  style={{
+                    background: 'rgba(16, 185, 129, 0.25)',
+                    border: '1px solid #10b981',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.6875rem',
+                    color: '#34d399',
+                    fontWeight: 700,
+                  }}
+                >
+                  ⚡ AUTO-PUNCH ARMED
+                </div>
+              )}
+            </div>
+
+            {/* Target Reticle Frame & Corner Brackets */}
+            <div
+              style={{
+                position: 'absolute',
+                width: '180px',
+                height: '180px',
+                pointerEvents: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 4,
+              }}
+            >
+              {/* Corner brackets */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '24px',
+                  height: '24px',
+                  borderTop: '3px solid #38bdf8',
+                  borderLeft: '3px solid #38bdf8',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  width: '24px',
+                  height: '24px',
+                  borderTop: '3px solid #38bdf8',
+                  borderRight: '3px solid #38bdf8',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  width: '24px',
+                  height: '24px',
+                  borderBottom: '3px solid #38bdf8',
+                  borderLeft: '3px solid #38bdf8',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  right: 0,
+                  width: '24px',
+                  height: '24px',
+                  borderBottom: '3px solid #38bdf8',
+                  borderRight: '3px solid #38bdf8',
+                }}
+              />
+
+              {/* Center subtle framing circle */}
+              <div
+                style={{
+                  width: '130px',
+                  height: '130px',
+                  border: '1px dashed rgba(56, 189, 248, 0.4)',
+                  borderRadius: '12px',
+                }}
+              />
+
+              {/* Sweeping Cyan Laser Scanning Line */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '4px',
+                  right: '4px',
+                  height: '2px',
+                  background: 'linear-gradient(90deg, transparent, #38bdf8 25%, #ffffff 50%, #38bdf8 75%, transparent)',
+                  boxShadow: '0 0 10px #38bdf8, 0 0 20px #0284c7',
+                  animation: 'kioskLaserSweep 2.2s ease-in-out infinite',
+                }}
+              />
+            </div>
+
+            {/* Last Scan Live Feedback Pill */}
+            {lastScanNotice && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '36px',
+                  background: 'rgba(16, 185, 129, 0.92)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid #ffffff',
+                  borderRadius: '999px',
+                  padding: '4px 14px',
+                  fontSize: '0.75rem',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.5)',
+                  zIndex: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>⚡</span>
+                <span>{lastScanNotice.source}: Badge {lastScanNotice.code} Recognized</span>
+              </div>
+            )}
+
+            {/* Bottom Status Pills */}
             <div
               style={{
                 position: 'absolute',
                 bottom: '10px',
                 left: '12px',
-                background: 'rgba(0, 0, 0, 0.65)',
-                backdropFilter: 'blur(6px)',
-                padding: '3px 8px',
-                borderRadius: '4px',
-                fontSize: '0.6875rem',
-                color: '#38bdf8',
+                right: '12px',
                 display: 'flex',
+                justifyContent: 'space-between',
                 alignItems: 'center',
-                gap: '4px',
-                fontWeight: 600,
+                zIndex: 5,
               }}
             >
-              <span
+              <div
                 style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: cameraActive ? '#22c55e' : '#eab308',
+                  background: 'rgba(0, 0, 0, 0.65)',
+                  backdropFilter: 'blur(6px)',
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  fontSize: '0.6875rem',
+                  color: '#38bdf8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontWeight: 600,
                 }}
-              />
-              <span>{cameraActive ? 'CAMERA LIVE' : 'SIMULATED CAMERA READY'}</span>
+              >
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: cameraActive ? '#22c55e' : '#eab308',
+                  }}
+                />
+                <span>{cameraActive ? 'CAMERA LIVE' : 'SIMULATED CAMERA READY'}</span>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(0, 0, 0, 0.65)',
+                  backdropFilter: 'blur(6px)',
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  fontSize: '0.6875rem',
+                  color: '#94a3b8',
+                  fontWeight: 500,
+                }}
+              >
+                USB Wedge & NFC Active
+              </div>
             </div>
           </div>
 
@@ -1062,6 +1511,211 @@ export function AttendanceKiosk() {
           </div>
         </div>
       </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* Touchless Badge Scanner Test Station & Quick Badges Tray              */}
+      {/* --------------------------------------------------------------------- */}
+      <section
+        style={{
+          marginTop: '1.25rem',
+          background: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(12px)',
+          borderRadius: '14px',
+          border: '1px solid rgba(56, 189, 248, 0.25)',
+          padding: '1rem 1.25rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.875rem',
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <span style={{ fontSize: '1.25rem' }}>🚀</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.9375rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>TOUCHLESS BADGE SCANNER SIMULATOR & TEST TRAY</span>
+                <span
+                  style={{
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    border: '1px solid #38bdf8',
+                    color: '#38bdf8',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '0.6875rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  ZERO HARDWARE REQUIRED
+                </span>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                Tap any worker badge to test 1-second auto-clocking, simulate NFC tap, hardware barcode wedge, or preview full CR80 ID card.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+            <span style={{ color: '#38bdf8', fontWeight: 600 }}>Active Engines:</span>
+            <span style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+              📷 QR Detector
+            </span>
+            <span style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+              🛜 Web NFC
+            </span>
+            <span style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+              🏷️ USB Wedge
+            </span>
+          </div>
+        </div>
+
+        {/* Quick Employee Badges Grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: '0.75rem',
+          }}
+        >
+          {quickWorkers.map((worker) => (
+            <div
+              key={worker.code}
+              style={{
+                background:
+                  employeeCode === worker.code
+                    ? 'rgba(56, 189, 248, 0.12)'
+                    : 'rgba(30, 41, 59, 0.5)',
+                border: `1px solid ${
+                  employeeCode === worker.code ? '#38bdf8' : 'rgba(255, 255, 255, 0.08)'
+                }`,
+                borderRadius: '10px',
+                padding: '0.75rem 0.875rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                      border: '1px solid #38bdf8',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 800,
+                      fontSize: '0.8125rem',
+                      color: '#38bdf8',
+                    }}
+                  >
+                    {worker.name.split(' ').map((n) => n[0]).join('')}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#f8fafc' }}>
+                      {worker.name}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                      {worker.code} · {worker.dept}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBadgeModalCode(worker.code)
+                    setIsBadgeModalOpen(true)
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#38bdf8',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    padding: '2px 6px',
+                  }}
+                  title="View full printable CR80 badge"
+                >
+                  🪪 View Badge
+                </button>
+              </div>
+
+              {/* Simulation Action Triggers */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleBadgeScanned(
+                      worker.code,
+                      '1234',
+                      '📷 CAMERA QR SCAN',
+                    )
+                  }}
+                  style={{
+                    padding: '0.35rem 0.5rem',
+                    background: 'rgba(56, 189, 248, 0.12)',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    borderRadius: '6px',
+                    color: '#38bdf8',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                  }}
+                  title="Simulates camera detecting QR code"
+                >
+                  <span>📷 Scan QR</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleBadgeScanned(
+                      worker.code,
+                      '1234',
+                      '🛜 NFC BADGE TAP',
+                    )
+                  }}
+                  style={{
+                    padding: '0.35rem 0.5rem',
+                    background: 'rgba(16, 185, 129, 0.12)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    borderRadius: '6px',
+                    color: '#34d399',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                  }}
+                  title="Simulates NFC card tapping tablet sensor"
+                >
+                  <span>🛜 Tap NFC</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* --------------------------------------------------------------------- */}
       {/* Bottom Live Activity Feed Ticker                                     */}
@@ -1293,6 +1947,30 @@ export function AttendanceKiosk() {
           </div>
         </div>
       )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* Interactive CR80 Employee ID Badge Modal (Print & Simulate)           */}
+      {/* --------------------------------------------------------------------- */}
+      <EmployeeBadgeModal
+        isOpen={isBadgeModalOpen}
+        onClose={() => setIsBadgeModalOpen(false)}
+        badges={badgesQuery.data?.badges || []}
+        selectedBadgeCode={badgeModalCode}
+        onSimulateScan={(scannedCode, payload) => {
+          void handleBadgeScanned(scannedCode, '1234', '🪪 ID BADGE SCAN')
+        }}
+      />
+
+      {/* Viewfinder Laser Sweep Keyframe Style */}
+      <style>
+        {`
+          @keyframes kioskLaserSweep {
+            0% { top: 10%; opacity: 0.5; }
+            50% { top: 86%; opacity: 1; }
+            100% { top: 10%; opacity: 0.5; }
+          }
+        `}
+      </style>
     </div>
   )
 }

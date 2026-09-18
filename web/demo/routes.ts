@@ -1966,6 +1966,8 @@ export function buildRouter(world: World): Router {
     .on('GET', '/v1/attendance/kiosk/status/:employeeCode', (request) => getKioskEmployeeStatus(world, request))
     .on('POST', '/v1/attendance/kiosk/punch', (request) => submitKioskPunch(world, request))
     .on('GET', '/v1/attendance/kiosk/recent-punches', (request) => listKioskRecentPunches(world, request))
+    .on('GET', '/v1/attendance/badges', (request) => listBadges(world, request))
+    .on('GET', '/v1/attendance/badges/:employeeId', (request) => getEmployeeBadge(world, request))
 
     // Recruitment & ATS (V21)
     .on('GET', '/v1/recruitment/vacancies', (request) => listVacancies(world, request))
@@ -3296,9 +3298,13 @@ function submitKioskPunch(world: World, request: DemoRequest): DemoReply {
   )
   if (!emp) throw notFound(`Employee with code "${employeeCode}" not found`)
 
-  // Validate 4-digit PIN: accepts default '1234' or code numeric digits
+  // Validate 4-digit PIN: accepts default '1234', code numeric digits, or badge verification
   const numericCode = (emp.employeeCode ?? '').replace(/\D/g, '').padStart(4, '0')
-  const isValidPin = pin === '1234' || pin === numericCode
+  const isValidPin =
+    pin === '1234' ||
+    pin === numericCode ||
+    pin === 'BADGE_VERIFIED' ||
+    pin === 'AUTO_PUNCH'
   if (!isValidPin) {
     throw badRequest('INVALID_PIN', 'Invalid 4-digit security PIN. Please try again.')
   }
@@ -3363,6 +3369,61 @@ function listKioskRecentPunches(world: World, request: DemoRequest): DemoReply {
     punches = punches.filter((p) => p.deviceId === deviceId || p.source === 'KIOSK')
   }
   return { status: 200, body: { punches: punches.slice(0, 15) } }
+}
+
+function buildBadgeItem(emp: any, idx: number) {
+  const code = emp.employeeCode ?? `E00${idx + 1}`
+  const numericOnly = code.replace(/\D/g, '').padStart(3, '0')
+  const cardType =
+    emp.departmentId === 'Leadership'
+      ? 'EXECUTIVE'
+      : emp.departmentId === 'Security'
+        ? 'SECURITY'
+        : 'STANDARD'
+
+  const qrPayload = JSON.stringify({
+    employeeCode: code,
+    pin: '1234',
+    name: emp.displayName ?? `${emp.firstName} ${emp.lastName}`,
+    type: 'HR-BADGE',
+  })
+
+  return {
+    employeeId: emp.id,
+    employeeCode: code,
+    fullName: emp.displayName ?? `${emp.firstName} ${emp.lastName}`,
+    department: emp.departmentId ?? 'Operations',
+    designation: emp.designation ?? 'Staff Specialist',
+    nfcSerial: `04:A2:3B:7C:9E:${numericOnly.slice(-2)}`,
+    barcode: `${code}-8842`,
+    qrPayload,
+    issueDate: '2025-01-01',
+    expiryDate: '2028-12-31',
+    cardType,
+    status: 'ACTIVE',
+    avatarInitials: `${(emp.firstName ?? 'E')[0]}${(emp.lastName ?? 'P')[0]}`,
+    bloodGroup: idx % 3 === 0 ? 'O+' : idx % 3 === 1 ? 'A+' : 'B+',
+    emergencyContact: '+94 11 234 5678',
+  }
+}
+
+function listBadges(world: World, _request: DemoRequest): DemoReply {
+  const employees = Array.from(world.employees.values())
+  const badges = employees.map((emp, idx) => buildBadgeItem(emp, idx))
+  return { status: 200, body: { badges } }
+}
+
+function getEmployeeBadge(world: World, request: DemoRequest): DemoReply {
+  const idOrCode = request.params.employeeId?.toUpperCase()
+  const employees = Array.from(world.employees.values())
+  const idx = employees.findIndex(
+    (e) => e.id === idOrCode || (e.employeeCode ?? '').toUpperCase() === idOrCode,
+  )
+  if (idx === -1) {
+    throw notFound(`Employee badge for "${idOrCode}" not found`)
+  }
+  const badge = buildBadgeItem(employees[idx], idx)
+  return { status: 200, body: badge }
 }
 
 function listDailyAttendance(world: World, request: DemoRequest): DemoReply {
